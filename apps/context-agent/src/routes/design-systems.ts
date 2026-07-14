@@ -58,6 +58,29 @@ designSystemsRoute.get("/design-systems", async (c) => {
 	return c.json({ designSystems: systems })
 })
 
+designSystemsRoute.get("/design-system-versions", async (c) => {
+	const caller = await requireCaller(c)
+	const versions = await db
+		.select({
+			id: designSystemVersions.id,
+			version: designSystemVersions.version,
+			name: designSystems.name,
+		})
+		.from(designSystemVersions)
+		.innerJoin(
+			designSystems,
+			eq(designSystems.id, designSystemVersions.designSystemId),
+		)
+		.where(
+			and(
+				eq(designSystems.orgId, caller.orgId),
+				eq(designSystemVersions.status, "active"),
+			),
+		)
+		.orderBy(asc(designSystems.name), asc(designSystemVersions.version))
+	return c.json({ versions })
+})
+
 designSystemsRoute.post(
 	"/design-systems",
 	zValidator(

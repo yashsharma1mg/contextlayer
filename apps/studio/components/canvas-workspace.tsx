@@ -776,6 +776,7 @@ export function CanvasWorkspace({
 							projectId={activeProjectId}
 							pinnedVersion={workspace.project.pinnedDesignSystemVersionId}
 							onNodeAdded={appendNode}
+							onProjectUpdated={load}
 						/>
 					)}
 					{panel === "history" && (
@@ -916,16 +917,23 @@ function ContextPanel({
 	projectId,
 	pinnedVersion,
 	onNodeAdded,
+	onProjectUpdated,
 }: {
 	projectId: string
 	pinnedVersion: string | null
 	onNodeAdded: (node: WorkspaceNode) => void
+	onProjectUpdated: () => Promise<void>
 }) {
 	const [assets, setAssets] = useState<
 		{ id: string; name: string; kind: string; description: string | null }[]
 	>([])
 	const [captureToken, setCaptureToken] = useState<string | null>(null)
 	const [busyAssetId, setBusyAssetId] = useState<string | null>(null)
+	const [versions, setVersions] = useState<
+		{ id: string; name: string; version: string }[]
+	>([])
+	const [pinning, setPinning] = useState(false)
+	const [error, setError] = useState<string | null>(null)
 	useEffect(() => {
 		apiGet<{
 			assets: {
@@ -937,7 +945,29 @@ function ContextPanel({
 		}>(`/api/projects/${projectId}/design-assets`)
 			.then((result) => setAssets(result.assets))
 			.catch(() => undefined)
+		apiGet<{ versions: { id: string; name: string; version: string }[] }>(
+			"/api/design-system-versions",
+		)
+			.then((result) => setVersions(result.versions))
+			.catch(() => undefined)
 	}, [projectId])
+
+	async function pinDesignSystem(versionId: string) {
+		setPinning(true)
+		setError(null)
+		try {
+			await apiSend("PATCH", `/api/projects/${projectId}/design-system`, {
+				versionId: versionId || null,
+			})
+			await onProjectUpdated()
+		} catch (cause) {
+			setError(
+				cause instanceof Error ? cause.message : "Could not pin design system",
+			)
+		} finally {
+			setPinning(false)
+		}
+	}
 
 	async function addAsset(assetId: string) {
 		setBusyAssetId(assetId)
@@ -966,11 +996,19 @@ function ContextPanel({
 		<div className="space-y-4">
 			<div>
 				<p className="text-xs font-medium">Design system</p>
-				<p className="mt-1 text-xs text-muted-foreground">
-					{pinnedVersion
-						? "Pinned and ready for generation"
-						: "No pinned version"}
-				</p>
+				<select
+					value={pinnedVersion ?? ""}
+					disabled={pinning}
+					onChange={(event) => pinDesignSystem(event.target.value)}
+					className="mt-2 h-9 w-full rounded-md border border-input bg-background px-2 text-xs"
+				>
+					<option value="">No pinned version</option>
+					{versions.map((version) => (
+						<option key={version.id} value={version.id}>
+							{version.name} v{version.version}
+						</option>
+					))}
+				</select>
 			</div>
 			<div className="space-y-2">
 				{assets.slice(0, 12).map((asset) => (
@@ -1017,6 +1055,7 @@ function ContextPanel({
 			>
 				<Plus className="size-3" /> Manage projects
 			</Link>
+			{error && <p className="text-xs text-red-600">{error}</p>}
 		</div>
 	)
 }
