@@ -38,9 +38,11 @@ export const designManifestSchema = z.object({
 		peerDependencies: z.array(z.string().max(120)).max(50).default([]),
 	}),
 	tokens: z.array(assetSchema).max(2_000).default([]),
+	primitives: z.array(assetSchema).max(2_000).default([]),
 	components: z.array(assetSchema).max(2_000).default([]),
 	foundations: z.array(assetSchema).max(500).default([]),
 	patterns: z.array(assetSchema).max(500).default([]),
+	templates: z.array(assetSchema).max(500).default([]),
 	sourceMappings: z.array(z.string().url()).max(100).default([]),
 })
 
@@ -177,12 +179,20 @@ designSystemsRoute.post(
 				asset,
 			})),
 			...manifest.tokens.map((asset) => ({ kind: "token" as const, asset })),
+			...manifest.primitives.map((asset) => ({
+				kind: "primitive" as const,
+				asset,
+			})),
 			...manifest.components.map((asset) => ({
 				kind: "component" as const,
 				asset,
 			})),
 			...manifest.patterns.map((asset) => ({
 				kind: "pattern" as const,
+				asset,
+			})),
+			...manifest.templates.map((asset) => ({
+				kind: "template" as const,
 				asset,
 			})),
 		]
