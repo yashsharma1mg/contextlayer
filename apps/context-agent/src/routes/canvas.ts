@@ -29,6 +29,7 @@ import { artifactKinds, resolveArtifactKind } from "../lib/generation-routing"
 import { openrouter, withModelFallback } from "../lib/openrouter"
 import { getVisibleProject } from "../lib/project-access"
 import { searchMemories } from "../lib/search"
+import { type UiPlan, uiPlanSchema, validateUiPlan } from "../lib/ui-plan"
 
 export const canvasRoute = new Hono()
 
@@ -1115,6 +1116,7 @@ canvasRoute.post(
 		let title: string
 		let body: string | null
 		let generatedCode: string | null = null
+		let uiPlan: UiPlan | undefined
 		if (kind === "react_prototype") {
 			const approvedAssets = project.pinnedDesignSystemVersionId
 				? await db
@@ -1135,6 +1137,39 @@ canvasRoute.post(
 				grounding,
 				approvedAssets,
 			)
+		} else if (kind === "interface_spec") {
+			const approvedAssets = project.pinnedDesignSystemVersionId
+				? await db
+						.select({
+							name: designAssets.name,
+							kind: designAssets.kind,
+							data: designAssets.data,
+						})
+						.from(designAssets)
+						.where(
+							eq(designAssets.versionId, project.pinnedDesignSystemVersionId),
+						)
+						.limit(200)
+				: []
+			const { object } = await withModelFallback((model) =>
+				generateObject({
+					model: openrouter.chat(model),
+					schema: uiPlanSchema,
+					system:
+						"Create an evidence-grounded UI plan. Use only approved component IDs, props, variants, and tokens. Include loading, empty, error, validation, permission, retry, and recovery states when relevant.",
+					prompt: `Canvas context:\n${selectedContext || "(none selected)"}\n\nKnowledge:\n${knowledge || "(no matching knowledge)"}\n\nApproved design assets:\n${JSON.stringify(approvedAssets)}\n\nRequest: ${input.prompt}`,
+				}),
+			)
+			const errors = validateUiPlan(object, approvedAssets)
+			if (errors.length) {
+				return c.json(
+					{ error: `UI plan validation failed: ${errors.join("; ")}` },
+					422,
+				)
+			}
+			uiPlan = object
+			title = object.title
+			body = `${object.summary}\n\n## Screens\n${object.screens.map((screen) => `- **${screen.name}**: ${screen.purpose} (${screen.states.join(", ")})`).join("\n")}\n\n## Navigation\n${object.navigation.map((item) => `- ${item}`).join("\n")}\n\n## Components\n${object.components.map((component) => `- ${component.componentId}`).join("\n")}\n\n## File structure\n${object.fileStructure.map((file) => `- \`${file}\``).join("\n")}`
 		} else {
 			const { object } = await withModelFallback((model) =>
 				generateObject({
@@ -1177,6 +1212,7 @@ canvasRoute.post(
 				generationInput: {
 					prompt: input.prompt,
 					selectedNodeIds: input.selectedNodeIds,
+					uiPlan,
 				},
 				sourceRefs: idea.sourceRefs ?? [],
 			})
