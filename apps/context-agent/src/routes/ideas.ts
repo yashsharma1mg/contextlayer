@@ -6,9 +6,10 @@ import {
 	ideas,
 	projectShareLinks,
 	projects,
+	team,
 } from "@repo/db"
 import { generateObject } from "ai"
-import { and, desc, eq } from "drizzle-orm"
+import { and, desc, eq, inArray } from "drizzle-orm"
 import { Hono } from "hono"
 import { createHash, randomBytes } from "node:crypto"
 import { z } from "zod"
@@ -96,6 +97,25 @@ ideasRoute.patch(
 		return c.json({ project: updated })
 	},
 )
+
+ideasRoute.get("/projects/:id/sharing-options", async (c) => {
+	const caller = await requireCaller(c)
+	const project = await getVisibleProject(c.req.param("id"), caller)
+	if (!project) return c.json({ error: "Project not found" }, 404)
+	const teams = caller.teamIds.length
+		? await db
+				.select({ id: team.id, name: team.name })
+				.from(team)
+				.where(
+					and(
+						eq(team.organizationId, caller.orgId),
+						inArray(team.id, caller.teamIds),
+					),
+				)
+				.orderBy(team.name)
+		: []
+	return c.json({ teams })
+})
 
 const shareLinkSchema = z.object({
 	expiresInDays: z.number().int().min(1).max(365).default(30),
