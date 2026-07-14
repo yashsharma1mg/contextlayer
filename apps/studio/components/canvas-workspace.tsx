@@ -1259,6 +1259,10 @@ function ContextPanel({
 					</p>
 				)}
 			</div>
+			<GitHubSettings
+				projectId={projectId}
+				canManageSettings={canManageSettings}
+			/>
 			<Link
 				href="/projects"
 				className="inline-flex items-center gap-1 text-xs text-indigo-600"
@@ -1267,6 +1271,108 @@ function ContextPanel({
 			</Link>
 			{error && <p className="text-xs text-red-600">{error}</p>}
 		</div>
+	)
+}
+
+function GitHubSettings({
+	projectId,
+	canManageSettings,
+}: {
+	projectId: string
+	canManageSettings: boolean
+}) {
+	const [repository, setRepository] = useState("")
+	const [baseBranch, setBaseBranch] = useState("main")
+	const [appRoot, setAppRoot] = useState(".")
+	const [allowedPaths, setAllowedPaths] = useState("")
+	const [saving, setSaving] = useState(false)
+	const [status, setStatus] = useState<string | null>(null)
+
+	useEffect(() => {
+		apiGet<{
+			settings: {
+				repository: string
+				baseBranch: string
+				appRoot: string
+				allowedPaths: string[]
+			} | null
+		}>(`/api/projects/${projectId}/github`)
+			.then(({ settings }) => {
+				if (!settings) return
+				setRepository(settings.repository)
+				setBaseBranch(settings.baseBranch)
+				setAppRoot(settings.appRoot)
+				setAllowedPaths(settings.allowedPaths.join(", "))
+			})
+			.catch(() => undefined)
+	}, [projectId])
+
+	async function save(event: React.FormEvent) {
+		event.preventDefault()
+		setSaving(true)
+		setStatus(null)
+		try {
+			await apiSend("PATCH", `/api/projects/${projectId}/github`, {
+				repository,
+				baseBranch,
+				appRoot,
+				packageManager: "bun",
+				allowedPaths: allowedPaths
+					.split(",")
+					.map((path) => path.trim())
+					.filter(Boolean),
+			})
+			setStatus("GitHub settings saved.")
+		} catch (cause) {
+			setStatus(
+				cause instanceof Error
+					? cause.message
+					: "Could not save GitHub settings",
+			)
+		} finally {
+			setSaving(false)
+		}
+	}
+
+	return (
+		<form onSubmit={save} className="space-y-2 border-t border-border pt-3">
+			<p className="text-xs font-medium">GitHub delivery</p>
+			<Input
+				value={repository}
+				onChange={(event) => setRepository(event.target.value)}
+				placeholder="owner/repository"
+				disabled={!canManageSettings}
+				required
+			/>
+			<div className="grid grid-cols-2 gap-2">
+				<Input
+					value={baseBranch}
+					onChange={(event) => setBaseBranch(event.target.value)}
+					placeholder="Base branch"
+					disabled={!canManageSettings}
+					required
+				/>
+				<Input
+					value={appRoot}
+					onChange={(event) => setAppRoot(event.target.value)}
+					placeholder="App root"
+					disabled={!canManageSettings}
+					required
+				/>
+			</div>
+			<Input
+				value={allowedPaths}
+				onChange={(event) => setAllowedPaths(event.target.value)}
+				placeholder="Allowed paths, comma-separated"
+				disabled={!canManageSettings}
+			/>
+			{canManageSettings && (
+				<Button type="submit" size="xs" disabled={saving}>
+					{saving ? "Saving" : "Save configuration"}
+				</Button>
+			)}
+			{status && <p className="text-[10px] text-muted-foreground">{status}</p>}
+		</form>
 	)
 }
 

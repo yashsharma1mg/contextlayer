@@ -143,6 +143,10 @@ Design-system owners create a system from Studio's `/design-systems` page, submi
 
 Create a scoped MCP token with `POST /api/mcp/tokens`, then connect a Streamable HTTP client to `/mcp` with `Authorization: Bearer <token>`. The endpoint currently provides read-only tools for knowledge search, project canvas access, design assets, and source documents. Tokens are organization and user scoped and re-check current membership on every call.
 
+### GitHub delivery
+
+Project owners can configure a target repository, base branch, app root, and allowed paths in the canvas context drawer. This records the publication boundary only; Context Layer does not yet store GitHub credentials, push generated files, or open pull requests.
+
 ## Common commands
 
 ```bash

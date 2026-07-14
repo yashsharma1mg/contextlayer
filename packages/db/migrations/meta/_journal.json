@@ -43,6 +43,13 @@
       "when": 1784027996738,
       "tag": "0005_known_stepford_cuckoos",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784046154358,
+      "tag": "0006_sad_amphibian",
+      "breakpoints": true
     }
   ]
 }

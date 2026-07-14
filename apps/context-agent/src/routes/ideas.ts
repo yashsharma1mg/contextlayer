@@ -5,6 +5,7 @@ import {
 	ideaComments,
 	ideas,
 	projectShareLinks,
+	projectGitHubSettings,
 	projects,
 	team,
 } from "@repo/db"
@@ -20,6 +21,18 @@ import { getVisibleProject, projectVisibility } from "../lib/project-access"
 import { type SearchResult, searchMemories } from "../lib/search"
 
 export const ideasRoute = new Hono()
+
+const githubSettingsSchema = z.object({
+	repository: z
+		.string()
+		.trim()
+		.regex(/^[\w.-]+\/[\w.-]+$/),
+	baseBranch: z.string().trim().min(1).max(120).default("main"),
+	appRoot: z.string().trim().min(1).max(300).default("."),
+	packageManager: z.enum(["bun", "npm", "pnpm", "yarn"]).default("bun"),
+	allowedPaths: z.array(z.string().trim().min(1).max(300)).max(50).default([]),
+	designSystemImport: z.string().trim().max(300).optional(),
+})
 
 ideasRoute.post(
 	"/projects",
@@ -59,6 +72,40 @@ ideasRoute.get("/projects/:id", async (c) => {
 	if (!project) return c.json({ error: "Project not found" }, 404)
 	return c.json({ project })
 })
+
+ideasRoute.get("/projects/:id/github", async (c) => {
+	const caller = await requireCaller(c)
+	const project = await getVisibleProject(c.req.param("id"), caller)
+	if (!project) return c.json({ error: "Project not found" }, 404)
+	const [settings] = await db
+		.select()
+		.from(projectGitHubSettings)
+		.where(eq(projectGitHubSettings.projectId, project.id))
+	return c.json({ settings: settings ?? null })
+})
+
+ideasRoute.patch(
+	"/projects/:id/github",
+	zValidator("json", githubSettingsSchema),
+	async (c) => {
+		const caller = await requireCaller(c)
+		const project = await getVisibleProject(c.req.param("id"), caller)
+		if (!project) return c.json({ error: "Project not found" }, 404)
+		if (project.ownerUserId !== caller.userId) {
+			return c.json({ error: "Project owner access required" }, 403)
+		}
+		const input = c.req.valid("json")
+		const [settings] = await db
+			.insert(projectGitHubSettings)
+			.values({ projectId: project.id, ...input })
+			.onConflictDoUpdate({
+				target: projectGitHubSettings.projectId,
+				set: { ...input, updatedAt: new Date() },
+			})
+			.returning()
+		return c.json({ settings })
+	},
+)
 
 const shareSchema = z
 	.object({

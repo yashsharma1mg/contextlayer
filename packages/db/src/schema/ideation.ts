@@ -83,6 +83,24 @@ export const projectShareLinks = pgTable(
 	(table) => [index("project_share_links_project_idx").on(table.projectId)],
 )
 
+export const projectGitHubSettings = pgTable("project_github_settings", {
+	projectId: text("project_id")
+		.primaryKey()
+		.references(() => projects.id, { onDelete: "cascade" }),
+	repository: text("repository").notNull(),
+	baseBranch: text("base_branch").notNull().default("main"),
+	appRoot: text("app_root").notNull().default("."),
+	packageManager: text("package_manager").notNull().default("bun"),
+	allowedPaths: jsonb("allowed_paths").$type<string[]>().notNull().default([]),
+	designSystemImport: text("design_system_import"),
+	createdAt: timestamp("created_at", { withTimezone: true })
+		.notNull()
+		.default(sql`now()`),
+	updatedAt: timestamp("updated_at", { withTimezone: true })
+		.notNull()
+		.default(sql`now()`),
+})
+
 export const ideas = pgTable(
 	"ideas",
 	{
