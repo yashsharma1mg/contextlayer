@@ -19,9 +19,14 @@ export function resolveArtifactKind(
 ): ArtifactKind {
 	if (requestedKind !== "auto") return requestedKind
 	const intent = prompt.toLowerCase()
-	if (/prototype|screen|ui |interface|page|wireframe/.test(intent)) {
+	if (
+		/spec|information architecture|interaction|interface specification/.test(
+			intent,
+		)
+	)
+		return "interface_spec"
+	if (/prototype|screen|ui |page|wireframe/.test(intent))
 		return "react_prototype"
-	}
 	if (/flow|journey|funnel|step.by.step/.test(intent)) return "user_flow"
 	if (/review|audit|heuristic|usability/.test(intent)) return "ux_review"
 	if (/test|qa|acceptance|scenario/.test(intent)) return "test_case"
@@ -29,8 +34,5 @@ export function resolveArtifactKind(
 		return "state_matrix"
 	}
 	if (/requirement|constraint|scope|must/.test(intent)) return "requirement"
-	if (/spec|information architecture|interaction/.test(intent)) {
-		return "interface_spec"
-	}
 	return "brief"
 }

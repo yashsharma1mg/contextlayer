@@ -8,6 +8,12 @@ test("routes common product prompts without a model request", () => {
 	expect(
 		resolveArtifactKind("Design the billing settings screen", "auto"),
 	).toBe("react_prototype")
+	expect(
+		resolveArtifactKind(
+			"Create an interface specification for settings",
+			"auto",
+		),
+	).toBe("interface_spec")
 	expect(resolveArtifactKind("Summarize the launch context", "auto")).toBe(
 		"brief",
 	)
