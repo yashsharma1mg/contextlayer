@@ -19,7 +19,14 @@
 			"dependsOn": ["^check-types"]
 		},
 		"test": {
-			"dependsOn": ["^test"]
+			"dependsOn": ["^test"],
+			"env": [
+				"DATABASE_URL",
+				"BETTER_AUTH_SECRET",
+				"BETTER_AUTH_URL",
+				"STUDIO_URL",
+				"CONNECTION_ENCRYPTION_KEY"
+			]
 		},
 		"dev": {
 			"cache": false,
