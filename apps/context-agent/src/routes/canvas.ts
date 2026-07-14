@@ -299,6 +299,90 @@ canvasRoute.patch(
 	},
 )
 
+const artifactBranchSchema = z.object({ revisionId: z.string().optional() })
+
+canvasRoute.post(
+	"/artifacts/:id/branch",
+	zValidator("json", artifactBranchSchema),
+	async (c) => {
+		const caller = await requireCaller(c)
+		const visible = await visibleArtifact(c.req.param("id"), caller)
+		if (!visible) return c.json({ error: "Artifact not found" }, 404)
+		const { revisionId } = c.req.valid("json")
+		const [source] = await db
+			.select()
+			.from(artifactRevisions)
+			.where(
+				revisionId
+					? and(
+							eq(artifactRevisions.artifactId, visible.artifact.id),
+							eq(artifactRevisions.id, revisionId),
+						)
+					: eq(artifactRevisions.artifactId, visible.artifact.id),
+			)
+			.orderBy(desc(artifactRevisions.version))
+			.limit(1)
+		if (!source) return c.json({ error: "Artifact revision not found" }, 404)
+		const [sourceNode] = await db
+			.select()
+			.from(canvasNodes)
+			.where(eq(canvasNodes.artifactId, visible.artifact.id))
+			.orderBy(asc(canvasNodes.createdAt))
+			.limit(1)
+		if (!sourceNode)
+			return c.json({ error: "Artifact is not on a canvas" }, 409)
+		const content = source.content as {
+			body?: string | null
+			generatedCode?: string | null
+		}
+		await checkpoint(sourceNode.canvasId, caller.userId, "branch artifact")
+		const result = await db.transaction(async (tx) => {
+			const [artifact] = await tx
+				.insert(ideas)
+				.values({
+					projectId: visible.project.id,
+					authorUserId: caller.userId,
+					kind: visible.artifact.kind,
+					title: `${source.title} branch`.slice(0, 240),
+					body: content.body ?? null,
+					generatedCode: content.generatedCode ?? null,
+					prompt: visible.artifact.prompt,
+					sourceRefs: visible.artifact.sourceRefs,
+				})
+				.returning()
+			if (!artifact) throw new Error("Artifact branch creation failed")
+			await tx.insert(artifactRevisions).values({
+				artifactId: artifact.id,
+				version: 1,
+				authorUserId: caller.userId,
+				title: artifact.title,
+				content: { body: artifact.body, generatedCode: artifact.generatedCode },
+				sourceRefs: artifact.sourceRefs ?? [],
+				parentRevisionId: source.id,
+			})
+			const [node] = await tx
+				.insert(canvasNodes)
+				.values({
+					canvasId: sourceNode.canvasId,
+					kind: "artifact",
+					artifactId: artifact.id,
+					label: artifact.title,
+					x: sourceNode.x + 48,
+					y: sourceNode.y + 48,
+					width: sourceNode.width,
+					height: sourceNode.height,
+					data: {
+						artifactKind: artifact.kind,
+						branchedFromRevisionId: source.id,
+					},
+				})
+				.returning()
+			return { artifact, node }
+		})
+		return c.json(result, 201)
+	},
+)
+
 canvasRoute.get("/shared/:token", async (c) => {
 	const [shareLink] = await db
 		.select({ projectId: projectShareLinks.projectId })

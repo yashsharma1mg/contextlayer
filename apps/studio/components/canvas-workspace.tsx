@@ -794,6 +794,7 @@ export function CanvasWorkspace({
 							title={selectedRecord.artifactTitle ?? selectedRecord.label}
 							body={selectedRecord.artifactBody ?? ""}
 							onSaved={load}
+							onBranched={load}
 						/>
 					)}
 					{panel === "comments" && (
@@ -1025,11 +1026,13 @@ function ArtifactPanel({
 	title: initialTitle,
 	body: initialBody,
 	onSaved,
+	onBranched,
 }: {
 	artifactId: string
 	title: string
 	body: string
 	onSaved: () => Promise<void>
+	onBranched: () => Promise<void>
 }) {
 	const [title, setTitle] = useState(initialTitle)
 	const [body, setBody] = useState(initialBody)
@@ -1083,6 +1086,23 @@ function ArtifactPanel({
 		}
 	}
 
+	async function branch(revisionId: string) {
+		setBusy(true)
+		setError(null)
+		try {
+			await apiSend("POST", `/api/artifacts/${artifactId}/branch`, {
+				revisionId,
+			})
+			await onBranched()
+		} catch (cause) {
+			setError(
+				cause instanceof Error ? cause.message : "Could not branch artifact",
+			)
+		} finally {
+			setBusy(false)
+		}
+	}
+
 	const currentRevision = revisions[0]
 	const comparison = revisions.find((revision) => revision.id === comparisonId)
 	const revisionBody = (revision: (typeof revisions)[number]) =>
@@ -1120,15 +1140,25 @@ function ArtifactPanel({
 									{new Date(revision.createdAt).toLocaleString()}
 								</p>
 							</div>
-							{revision.id !== currentRevision?.id && (
+							<div className="flex shrink-0 gap-1">
+								{revision.id !== currentRevision?.id && (
+									<Button
+										variant="ghost"
+										size="xs"
+										onClick={() => setComparisonId(revision.id)}
+									>
+										Compare
+									</Button>
+								)}
 								<Button
 									variant="ghost"
 									size="xs"
-									onClick={() => setComparisonId(revision.id)}
+									disabled={busy}
+									onClick={() => branch(revision.id)}
 								>
-									Compare
+									Branch
 								</Button>
-							)}
+							</div>
 						</div>
 					</div>
 				))}
