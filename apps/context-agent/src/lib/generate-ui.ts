@@ -19,6 +19,7 @@ Rules:
 export async function generateUi(
 	prompt: string,
 	grounding: SearchResult[],
+	designAssets: { name: string; description: string | null }[] = [],
 ): Promise<string> {
 	const context =
 		grounding.length > 0
@@ -26,12 +27,20 @@ export async function generateUi(
 					.map((s) => `- ${s.title}: ${s.chunkContent.slice(0, 300)}`)
 					.join("\n")}`
 			: ""
+	const designContext = designAssets.length
+		? `\n\nApproved design-system assets to reflect in the interface:\n${designAssets
+				.map(
+					(asset) =>
+						`- ${asset.name}${asset.description ? `: ${asset.description}` : ""}`,
+				)
+				.join("\n")}`
+		: ""
 
 	const { text } = await withModelFallback((model) =>
 		generateText({
 			model: openrouter.chat(model),
 			system: SYSTEM_PROMPT,
-			prompt: `${prompt}${context}`,
+			prompt: `${prompt}${context}${designContext}`,
 		}),
 	)
 

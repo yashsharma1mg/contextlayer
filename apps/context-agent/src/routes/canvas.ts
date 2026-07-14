@@ -1120,11 +1120,24 @@ canvasRoute.post(
 		let body: string | null
 		let generatedCode: string | null = null
 		if (input.kind === "react_prototype") {
+			const approvedAssets = project.pinnedDesignSystemVersionId
+				? await db
+						.select({
+							name: designAssets.name,
+							description: designAssets.description,
+						})
+						.from(designAssets)
+						.where(
+							eq(designAssets.versionId, project.pinnedDesignSystemVersionId),
+						)
+						.limit(80)
+				: []
 			title = input.prompt.slice(0, 80)
 			body = "React prototype grounded in selected product context."
 			generatedCode = await generateUi(
 				`${input.prompt}\n\nSelected canvas context:\n${selectedContext}`,
 				grounding,
+				approvedAssets,
 			)
 		} else {
 			const { object } = await withModelFallback((model) =>
