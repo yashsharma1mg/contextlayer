@@ -126,6 +126,7 @@ interface Workspace {
 		name: string
 		pinnedDesignSystemVersionId: string | null
 		pinnedDesignSystem?: { name: string; version: string } | null
+		canManageProjectSettings?: boolean
 		visibility?: "personal" | "team" | "org"
 		teamId?: string | null
 	}
@@ -836,6 +837,9 @@ export function CanvasWorkspace({
 						<ContextPanel
 							projectId={activeProjectId}
 							pinnedVersion={workspace.project.pinnedDesignSystemVersionId}
+							canManageSettings={
+								workspace.project.canManageProjectSettings ?? false
+							}
 							onNodeAdded={appendNode}
 							onProjectUpdated={load}
 						/>
@@ -997,11 +1001,13 @@ export function CanvasWorkspace({
 function ContextPanel({
 	projectId,
 	pinnedVersion,
+	canManageSettings,
 	onNodeAdded,
 	onProjectUpdated,
 }: {
 	projectId: string
 	pinnedVersion: string | null
+	canManageSettings: boolean
 	onNodeAdded: (node: WorkspaceNode) => void
 	onProjectUpdated: () => Promise<void>
 }) {
@@ -1105,7 +1111,7 @@ function ContextPanel({
 				<p className="text-xs font-medium">Design system</p>
 				<select
 					value={pinnedVersion ?? ""}
-					disabled={pinning}
+					disabled={pinning || !canManageSettings}
 					onChange={(event) => pinDesignSystem(event.target.value)}
 					className="mt-2 h-9 w-full rounded-md border border-input bg-background px-2 text-xs"
 				>
@@ -1116,6 +1122,11 @@ function ContextPanel({
 						</option>
 					))}
 				</select>
+				{!canManageSettings && (
+					<p className="mt-1 text-[10px] text-muted-foreground">
+						Only the project owner can change this version.
+					</p>
+				)}
 			</div>
 			<div className="space-y-2">
 				<Input

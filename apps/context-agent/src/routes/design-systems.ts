@@ -290,6 +290,9 @@ designSystemsRoute.patch(
 		const caller = await requireCaller(c)
 		const project = await getVisibleProject(c.req.param("projectId"), caller)
 		if (!project) return c.json({ error: "Project not found" }, 404)
+		if (project.ownerUserId !== caller.userId) {
+			return c.json({ error: "Project owner access required" }, 403)
+		}
 		const { versionId } = c.req.valid("json")
 		if (versionId) {
 			const [version] = await db

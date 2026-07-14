@@ -252,7 +252,11 @@ canvasRoute.get("/projects/:projectId/canvas", async (c) => {
 				.limit(1)
 		: []
 	return c.json({
-		project: { ...project, pinnedDesignSystem: pinnedDesignSystem ?? null },
+		project: {
+			...project,
+			pinnedDesignSystem: pinnedDesignSystem ?? null,
+			canManageProjectSettings: project.ownerUserId === caller.userId,
+		},
 		canvas,
 		...(await workspace(canvas.id)),
 	})

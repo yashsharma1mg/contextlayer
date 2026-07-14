@@ -137,7 +137,7 @@ The same drawer shows the current Figma and Confluence connection status and sta
 
 ### Design-system manifests
 
-Design-system owners create a system from Studio's `/design-systems` page, submit a validated `DesignManifestV1`, activate a version, and pin that version to a project. A manifest records the package, preview entry, CSS, foundations, tokens, primitives, components, patterns, templates, props, variants, examples, accessibility guidance, and source mappings. The first Studio workflow intentionally uses a JSON manifest editor backed by server validation; automated Storybook/package/Figma manifest import remains follow-up work.
+Design-system owners create a system from Studio's `/design-systems` page, submit a validated `DesignManifestV1`, activate a version, and pin that version to a project. Project owners control the pinned version so collaborators cannot silently change shared generation context. A manifest records the package, preview entry, CSS, foundations, tokens, primitives, components, patterns, templates, props, variants, examples, accessibility guidance, and source mappings. The first Studio workflow intentionally uses a JSON manifest editor backed by server validation; automated Storybook/package/Figma manifest import remains follow-up work.
 
 ### MCP
 
