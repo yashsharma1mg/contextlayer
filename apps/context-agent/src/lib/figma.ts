@@ -12,7 +12,12 @@ const SCOPES = [
 ].join(",")
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-	const res = await fetch(url, init)
+	const res = await fetch(url, {
+		...init,
+		signal: init?.signal
+			? AbortSignal.any([init.signal, AbortSignal.timeout(30_000)])
+			: AbortSignal.timeout(30_000),
+	})
 	if (!res.ok) {
 		throw new Error(
 			`Figma request failed (${url}): ${res.status} ${await res.text()}`,
@@ -78,11 +83,15 @@ export const getCurrentUser = (accessToken: string) =>
 		headers: authHeader(accessToken),
 	})
 
-interface FigmaNode {
+export interface FigmaNode {
 	id: string
 	name: string
 	type: string
 	description?: string
+	componentPropertyDefinitions?: Record<
+		string,
+		{ type: string; defaultValue?: unknown; variantOptions?: string[] }
+	>
 	children?: FigmaNode[]
 }
 
@@ -92,9 +101,14 @@ export interface FigmaFile {
 	document: FigmaNode
 }
 
-export const getFile = (fileKey: string, accessToken: string) =>
+export const getFile = (
+	fileKey: string,
+	accessToken: string,
+	signal?: AbortSignal,
+) =>
 	fetchJson<FigmaFile>(`${API_BASE}/files/${fileKey}`, {
 		headers: authHeader(accessToken),
+		signal,
 	})
 
 // Figma's message field shape isn't consistently documented (plain string in
@@ -111,11 +125,16 @@ export interface FigmaComment {
 	order_id: number | null
 }
 
-export const getFileComments = (fileKey: string, accessToken: string) =>
+export const getFileComments = (
+	fileKey: string,
+	accessToken: string,
+	signal?: AbortSignal,
+) =>
 	fetchJson<{ comments: FigmaComment[] }>(
 		`${API_BASE}/files/${fileKey}/comments`,
 		{
 			headers: authHeader(accessToken),
+			signal,
 		},
 	).then((r) => r.comments)
 
@@ -146,6 +165,41 @@ export function extractComponentDescriptions(
 	}
 	walk(node)
 	return results
+}
+
+export function extractComponents(node: FigmaNode) {
+	const results: FigmaNode[] = []
+	const walk = (current: FigmaNode) => {
+		if (current.type === "COMPONENT" || current.type === "COMPONENT_SET") {
+			results.push(current)
+		}
+		current.children?.forEach(walk)
+	}
+	walk(node)
+	return results
+}
+
+export async function getLocalVariables(
+	fileKey: string,
+	accessToken: string,
+	signal?: AbortSignal,
+) {
+	return fetchJson<{
+		meta: {
+			variables: Record<
+				string,
+				{
+					id: string
+					name: string
+					resolvedType: string
+					valuesByMode: Record<string, unknown>
+				}
+			>
+		}
+	}>(`${API_BASE}/files/${fileKey}/variables/local`, {
+		headers: authHeader(accessToken),
+		signal,
+	})
 }
 
 /** Extracts the file key from a figma.com/file/... or /design/... URL. */

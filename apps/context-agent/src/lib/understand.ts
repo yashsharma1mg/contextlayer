@@ -16,8 +16,8 @@ const classificationSchema = z.object({
  * source-agnostic, so it applies uniformly whether content came from
  * Confluence, Figma, or a raw upload.
  */
-export async function filterSignal(chunks: string[]): Promise<string[]> {
-	if (chunks.length <= 1) return chunks // nothing to compare/filter against
+export async function signalChunkIndexes(chunks: string[]): Promise<number[]> {
+	if (chunks.length <= 1) return chunks.map((_, index) => index)
 
 	const numbered = chunks
 		.map((c, i) => `[${i}] ${c.slice(0, 800)}`)
@@ -34,14 +34,21 @@ export async function filterSignal(chunks: string[]): Promise<string[]> {
 			}),
 		)
 		const signalByIndex = new Map(object.chunks.map((c) => [c.index, c.signal]))
-		const kept = chunks.filter((_, i) => signalByIndex.get(i) ?? true)
+		const kept = chunks
+			.map((_, index) => index)
+			.filter((index) => signalByIndex.get(index) ?? true)
 		// Never let the filter zero out a whole document — that's a sign the
 		// call misbehaved, not that everything was actually noise.
-		return kept.length > 0 ? kept : chunks
+		return kept.length > 0 ? kept : chunks.map((_, index) => index)
 	} catch (e) {
 		// Classification is a quality optimization, not a correctness
 		// requirement — a failed call should never mean lost content.
 		console.error("Signal/noise classification failed, keeping all chunks:", e)
-		return chunks
+		return chunks.map((_, index) => index)
 	}
+}
+
+export async function filterSignal(chunks: string[]): Promise<string[]> {
+	const indexes = await signalChunkIndexes(chunks)
+	return indexes.map((index) => chunks[index] as string)
 }

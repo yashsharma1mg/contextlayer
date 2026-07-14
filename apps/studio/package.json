@@ -10,6 +10,7 @@
 		"check-types": "tsc --noEmit"
 	},
 	"dependencies": {
+		"@better-auth/oauth-provider": "1.5.3",
 		"@xyflow/react": "^12.11.2",
 		"better-auth": "^1.3.3",
 		"class-variance-authority": "^0.7.1",

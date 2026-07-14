@@ -1,3 +1,4 @@
+CREATE EXTENSION IF NOT EXISTS vector;--> statement-breakpoint
 CREATE TYPE "public"."connection_provider" AS ENUM('confluence', 'figma');--> statement-breakpoint
 CREATE TYPE "public"."container_scope" AS ENUM('org', 'team', 'personal');--> statement-breakpoint
 CREATE TYPE "public"."document_source" AS ENUM('confluence', 'figma', 'manual');--> statement-breakpoint

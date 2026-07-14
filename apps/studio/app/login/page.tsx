@@ -4,7 +4,7 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { signIn, signUp } from "@/lib/auth-client"
+import { authClient, signIn, signUp } from "@/lib/auth-client"
 
 export default function LoginPage() {
 	const router = useRouter()
@@ -27,6 +27,19 @@ export default function LoginPage() {
 		if (authError) {
 			setError(authError.message ?? "Something went wrong")
 			return
+		}
+		if (window.location.search.includes("sig=")) {
+			const continuation = await authClient.oauth2.continue({})
+			if (continuation.error) {
+				setError(
+					continuation.error.message ?? "Could not continue authorization",
+				)
+				return
+			}
+			if (continuation.data?.url) {
+				window.location.assign(continuation.data.url)
+				return
+			}
 		}
 		router.push("/")
 	}

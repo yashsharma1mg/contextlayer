@@ -119,10 +119,16 @@ export const ideas = pgTable(
 		generatedCode: text("generated_code"),
 		// The prompt that produced this idea, kept for iteration/regeneration.
 		prompt: text("prompt").notNull(),
-		// Which memory chunks grounded the generation: [{documentId, title, url}]
+		// Exact chunks that grounded the generation, including source location.
 		sourceRefs:
 			jsonb("source_refs").$type<
-				{ documentId: string; title: string; url: string | null }[]
+				{
+					documentId: string
+					chunkId?: string
+					title: string
+					url: string | null
+					provenance?: Record<string, unknown> | null
+				}[]
 			>(),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.notNull()

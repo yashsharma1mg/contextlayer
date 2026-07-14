@@ -7,6 +7,11 @@
 			"inputs": ["$TURBO_DEFAULT$", ".env*"],
 			"outputs": [".next/**", "!.next/cache/**", "dist/**"]
 		},
+		"context-layer-desktop#build": {
+			"dependsOn": ["studio#build", "context-agent#build"],
+			"inputs": ["$TURBO_DEFAULT$", ".env*"],
+			"cache": false
+		},
 		"lint": {
 			"dependsOn": ["^lint"]
 		},

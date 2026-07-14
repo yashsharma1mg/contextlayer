@@ -8,12 +8,15 @@ import {
 	captures,
 	captureTokens,
 	db,
+	projects,
 } from "@repo/db"
 import { and, eq, gt, sql } from "drizzle-orm"
 import { Hono } from "hono"
 import { createHash } from "node:crypto"
 import { z } from "zod"
+import { enqueueCaptureIngestion } from "../lib/capture-ingestion"
 import { redactCaptureOutline } from "../lib/capture-redaction"
+import { storeObject } from "../lib/local-storage"
 
 export const captureImportRoute = new Hono()
 
@@ -42,8 +45,14 @@ captureImportRoute.post(
 		if (!token) return c.json({ error: "Capture token required" }, 401)
 		const input = c.req.valid("json")
 		const [captureToken] = await db
-			.select()
+			.select({
+				id: captureTokens.id,
+				projectId: captureTokens.projectId,
+				createdBy: captureTokens.createdBy,
+				orgId: projects.orgId,
+			})
 			.from(captureTokens)
+			.innerJoin(projects, eq(projects.id, captureTokens.projectId))
 			.where(
 				and(
 					eq(captureTokens.projectId, input.projectId),
@@ -102,6 +111,28 @@ captureImportRoute.post(
 					)
 					.limit(1)
 			: []
+		const redactedOutline = redactCaptureOutline(input.domOutline)
+		const domObject = await storeObject({
+			orgId: captureToken.orgId,
+			kind: "capture_dom",
+			data: Buffer.from(redactedOutline),
+			mimeType: "application/json",
+			metadata: { projectId: input.projectId, url: input.url },
+		})
+		const screenshotBytes = input.screenshot
+			? Buffer.from(input.screenshot.split(",", 2)[1] ?? "", "base64")
+			: null
+		const screenshotObject = screenshotBytes?.length
+			? await storeObject({
+					orgId: captureToken.orgId,
+					kind: "capture_screenshot",
+					data: screenshotBytes,
+					mimeType:
+						input.screenshot?.slice(5, input.screenshot.indexOf(";")) ||
+						"image/png",
+					metadata: { projectId: input.projectId, url: input.url },
+				})
+			: null
 		const result = await db.transaction(async (tx) => {
 			const [capture] = await tx
 				.insert(captures)
@@ -110,8 +141,9 @@ captureImportRoute.post(
 					authorUserId: captureToken.createdBy,
 					title: input.title,
 					url: input.url,
-					domOutline: redactCaptureOutline(input.domOutline),
-					screenshot: input.screenshot,
+					domOutline: redactedOutline,
+					domObjectId: domObject.id,
+					screenshotObjectId: screenshotObject?.id,
 					metadata: input.metadata,
 				})
 				.returning()
@@ -144,6 +176,12 @@ captureImportRoute.post(
 			.update(captureTokens)
 			.set({ lastUsedAt: new Date() })
 			.where(eq(captureTokens.id, captureToken.id))
-		return c.json(result, 201)
+		const job = await enqueueCaptureIngestion({
+			captureId: result.capture.id,
+			orgId: captureToken.orgId,
+			projectId: input.projectId,
+			userId: captureToken.createdBy,
+		})
+		return c.json({ ...result, job }, 201)
 	},
 )

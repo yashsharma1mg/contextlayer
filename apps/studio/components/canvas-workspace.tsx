@@ -21,8 +21,10 @@ import "@xyflow/react/dist/style.css"
 import {
 	Bot,
 	Box,
+	CheckCircle2,
 	Copy,
 	FolderOpen,
+	GitPullRequest,
 	Globe2,
 	Hand,
 	History,
@@ -36,16 +38,23 @@ import {
 	Pencil,
 	Plus,
 	Send,
+	ShieldCheck,
 	StickyNote,
+	Trash2,
 	Upload,
+	UserPlus,
 	X,
 } from "lucide-react"
 import Link from "next/link"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
+import {
+	ProviderConsentControls,
+	SourceControls,
+} from "@/components/context-source-controls"
 import { Input } from "@/components/ui/input"
 import { SimpleTooltip } from "@/components/ui/tooltip"
-import { API_URL, apiDelete, apiGet, apiSend } from "@/lib/api"
+import { API_URL, apiDelete, apiGet, apiSend, waitForJob } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 type ArtifactKind =
@@ -117,6 +126,17 @@ interface WorkspaceComment {
 	nodeId: string | null
 	authorUserId: string
 	body: string
+	mentions: string[]
+	resolvedAt: string | null
+	resolvedBy: string | null
+	createdAt: string
+}
+
+interface ProjectMember {
+	userId: string
+	role: "owner" | "editor" | "viewer"
+	name: string
+	email: string
 	createdAt: string
 }
 
@@ -189,15 +209,36 @@ function CanvasCard({ data, selected }: NodeProps<CanvasFlowNode>) {
 							record.kind.replace("_", " ")}
 					</p>
 				</div>
-				{record.kind === "capture" && (
-					<MonitorUp className="size-3.5 text-orange-500" />
-				)}
+				{record.kind === "capture" &&
+					(record.data.processingStatus === "queued" ||
+					record.data.processingStatus === "running" ? (
+						<SimpleTooltip label="Indexing capture">
+							<LoaderCircle className="size-3.5 animate-spin text-blue-600" />
+						</SimpleTooltip>
+					) : record.data.processingStatus === "failed" ? (
+						<SimpleTooltip
+							label={String(
+								record.data.processingError ?? "Capture indexing failed",
+							)}
+						>
+							<X className="size-3.5 text-red-600" />
+						</SimpleTooltip>
+					) : (
+						<MonitorUp className="size-3.5 text-orange-500" />
+					))}
 				{record.kind === "design_asset" && (
 					<Box className="size-3.5 text-violet-500" />
 				)}
 			</div>
 			<div className="nodrag h-[calc(100%-3.2rem)] overflow-auto p-3">
-				{isReactSource ? (
+				{isReactSource && selected && record.artifactId ? (
+					<iframe
+						title={`${record.label} preview`}
+						sandbox="allow-scripts"
+						src={`${API_URL}/api/artifacts/${record.artifactId}/preview`}
+						className="h-full min-h-48 w-full rounded border border-black/10 bg-white"
+					/>
+				) : isReactSource ? (
 					<pre className="h-full overflow-auto whitespace-pre-wrap rounded border border-black/10 bg-slate-950 p-3 font-mono text-[10px] leading-4 text-slate-100">
 						{record.artifactCode}
 					</pre>
@@ -312,7 +353,12 @@ export function CanvasWorkspace({
 		"context" | "comments" | "history" | "share" | "artifact" | null
 	>(null)
 	const [comment, setComment] = useState("")
+	const [commentMention, setCommentMention] = useState("")
+	const [collaborators, setCollaborators] = useState<ProjectMember[]>([])
 	const [error, setError] = useState<string | null>(null)
+	const [providerConsents, setProviderConsents] = useState<Set<string>>(
+		new Set(),
+	)
 	const inputRef = useRef<HTMLInputElement>(null)
 	const activeProjectId = workspace?.project.id ?? projectId ?? ""
 
@@ -330,6 +376,26 @@ export function CanvasWorkspace({
 	useEffect(() => {
 		load().catch((cause) => setError(cause.message))
 	}, [load])
+
+	useEffect(() => {
+		if (!activeProjectId || isReadOnly) return
+		Promise.all([
+			apiGet<{ members: ProjectMember[] }>(
+				`/api/projects/${activeProjectId}/members`,
+			).then((result) => setCollaborators(result.members)),
+			apiGet<{
+				consents: { provider: string; revokedAt: string | null }[]
+			}>("/api/privacy/consents").then((result) =>
+				setProviderConsents(
+					new Set(
+						result.consents
+							.filter((consent) => !consent.revokedAt)
+							.map((consent) => consent.provider),
+					),
+				),
+			),
+		]).catch(() => undefined)
+	}, [activeProjectId, isReadOnly])
 
 	const selectedRecord = useMemo(
 		() =>
@@ -581,6 +647,7 @@ export function CanvasWorkspace({
 			{
 				nodeId: selectedNodeIds[0],
 				body: comment,
+				mentions: commentMention ? [commentMention] : [],
 			},
 		)
 		setWorkspace((current) =>
@@ -589,6 +656,32 @@ export function CanvasWorkspace({
 				: current,
 		)
 		setComment("")
+		setCommentMention("")
+	}
+
+	async function resolveComment(commentId: string) {
+		if (!workspace) return
+		try {
+			const result = await apiSend<{ comment: WorkspaceComment }>(
+				"POST",
+				`/api/canvases/${workspace.canvas.id}/comments/${commentId}/resolve`,
+				{},
+			)
+			setWorkspace((current) =>
+				current
+					? {
+							...current,
+							comments: current.comments.map((item) =>
+								item.id === commentId ? result.comment : item,
+							),
+						}
+					: current,
+			)
+		} catch (cause) {
+			setError(
+				cause instanceof Error ? cause.message : "Could not resolve comment",
+			)
+		}
 	}
 
 	async function upload(file: File) {
@@ -597,19 +690,21 @@ export function CanvasWorkspace({
 		try {
 			const form = new FormData()
 			form.append("file", file)
-			form.append("scope", "org")
+			form.append("scope", "personal")
 			const response = await fetch(`${API_URL}/api/memories/upload`, {
 				method: "POST",
 				credentials: "include",
 				body: form,
 			})
 			if (!response.ok) throw new Error("Upload failed")
-			const uploaded = (await response.json()) as {
-				document: { id: string }
-			}
+			const queued = (await response.json()) as { job: { id: string } }
+			const completed = await waitForJob(queued.job.id)
+			const documentId = completed.result?.documentId
+			if (typeof documentId !== "string")
+				throw new Error("Upload returned no document")
 			const result = await apiSend<{ node: WorkspaceNode }>(
 				"POST",
-				`/api/projects/${activeProjectId}/documents/${uploaded.document.id}/nodes`,
+				`/api/projects/${activeProjectId}/documents/${documentId}/nodes`,
 				{
 					x: 120 + workspace.nodes.length * 24,
 					y: 140 + workspace.nodes.length * 24,
@@ -861,6 +956,7 @@ export function CanvasWorkspace({
 							projectId={activeProjectId}
 							visibility={workspace.project.visibility ?? "personal"}
 							teamId={workspace.project.teamId ?? null}
+							canManage={workspace.project.canManageProjectSettings ?? false}
 						/>
 					)}
 					{panel === "artifact" && selectedRecord?.artifactId && (
@@ -869,6 +965,8 @@ export function CanvasWorkspace({
 							artifactId={selectedRecord.artifactId}
 							title={selectedRecord.artifactTitle ?? selectedRecord.label}
 							body={selectedRecord.artifactBody ?? ""}
+							kind={selectedRecord.artifactKind}
+							canPublish={workspace.project.canManageProjectSettings ?? false}
 							sources={selectedRecord.artifactSources ?? []}
 							onSourceSelected={focusSource}
 							onSaved={load}
@@ -889,11 +987,32 @@ export function CanvasWorkspace({
 							{nodeComments.map((item) => (
 								<div
 									key={item.id}
-									className="rounded border border-border p-2 text-xs"
+									className={cn(
+										"rounded border border-border p-2 text-xs",
+										item.resolvedAt && "opacity-55",
+									)}
 								>
-									<p>{item.body}</p>
+									<div className="flex items-start justify-between gap-2">
+										<p>{item.body}</p>
+										{!item.resolvedAt && !isReadOnly && (
+											<Button
+												variant="ghost"
+												size="icon-xs"
+												aria-label="Resolve comment"
+												title="Resolve comment"
+												onClick={() => resolveComment(item.id)}
+											>
+												<CheckCircle2 />
+											</Button>
+										)}
+									</div>
 									<p className="mt-1 text-[10px] text-muted-foreground">
-										{new Date(item.createdAt).toLocaleString()}
+										{item.resolvedAt
+											? "Resolved"
+											: new Date(item.createdAt).toLocaleString()}
+										{item.mentions.length
+											? ` · ${item.mentions.length} mentioned`
+											: ""}
 									</p>
 								</div>
 							))}
@@ -904,6 +1023,19 @@ export function CanvasWorkspace({
 									placeholder="Leave a review note"
 									disabled={!selectedRecord}
 								/>
+								<select
+									value={commentMention}
+									onChange={(event) => setCommentMention(event.target.value)}
+									disabled={!selectedRecord}
+									className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+								>
+									<option value="">No mention</option>
+									{collaborators.map((member) => (
+										<option key={member.userId} value={member.userId}>
+											{member.name} ({member.email})
+										</option>
+									))}
+								</select>
 								<Button type="submit" size="sm" disabled={!selectedRecord}>
 									Comment
 								</Button>
@@ -983,6 +1115,15 @@ export function CanvasWorkspace({
 							</span>
 						</div>
 					</div>
+					<div className="mt-2 flex items-center gap-1.5 border-t border-border pt-2 text-[10px] text-muted-foreground">
+						<ShieldCheck className="size-3 text-emerald-600" />
+						{providerConsents.has("openrouter")
+							? `OpenRouter receives this prompt, ${selectedNodeIds.length} selected node${selectedNodeIds.length === 1 ? "" : "s"}, and retrieved excerpts.`
+							: "Remote generation is off; no selected context leaves this Mac."}
+						{providerConsents.has("nvidia") && (
+							<span> NVIDIA receives the search query.</span>
+						)}
+					</div>
 				</form>
 			)}
 
@@ -1033,13 +1174,6 @@ function ContextPanel({
 	const [pinning, setPinning] = useState(false)
 	const [error, setError] = useState<string | null>(null)
 	const [assetQuery, setAssetQuery] = useState("")
-	const [connections, setConnections] = useState({
-		figma: false,
-		confluence: false,
-	})
-	const [figmaFileUrl, setFigmaFileUrl] = useState("")
-	const [watchingFigma, setWatchingFigma] = useState(false)
-	const [figmaNotice, setFigmaNotice] = useState<string | null>(null)
 	const loadAssets = useCallback(async () => {
 		const result = await apiGet<{
 			assets: {
@@ -1059,19 +1193,6 @@ function ContextPanel({
 			.then((result) => setVersions(result.versions))
 			.catch(() => undefined)
 	}, [loadAssets])
-	useEffect(() => {
-		Promise.all([
-			apiGet<{ connected: boolean }>("/api/connections/figma/status"),
-			apiGet<{ connected: boolean }>("/api/connections/confluence/status"),
-		])
-			.then(([figma, confluence]) =>
-				setConnections({
-					figma: figma.connected,
-					confluence: confluence.connected,
-				}),
-			)
-			.catch(() => undefined)
-	}, [])
 
 	async function pinDesignSystem(versionId: string) {
 		setPinning(true)
@@ -1111,27 +1232,6 @@ function ContextPanel({
 			{},
 		)
 		setCaptureToken(result.token)
-	}
-
-	async function watchFigmaFile(event: React.FormEvent) {
-		event.preventDefault()
-		setWatchingFigma(true)
-		setFigmaNotice(null)
-		try {
-			await apiSend("POST", "/api/connections/figma/watch", {
-				fileUrl: figmaFileUrl,
-			})
-			setFigmaFileUrl("")
-			setFigmaNotice("Figma file registered for the next sync.")
-		} catch (cause) {
-			setError(
-				cause instanceof Error
-					? cause.message
-					: "Could not register Figma file",
-			)
-		} finally {
-			setWatchingFigma(false)
-		}
 	}
 
 	const visibleAssets = assets.filter((asset) =>
@@ -1210,55 +1310,12 @@ function ContextPanel({
 					</p>
 				)}
 			</div>
-			<div className="space-y-2 border-t border-border pt-3">
-				<p className="text-xs font-medium">Connections</p>
-				<div className="flex items-center justify-between gap-2 text-xs">
-					<span className="text-muted-foreground">
-						Figma {connections.figma ? "connected" : "not connected"}
-					</span>
-					{canManageConnections && (
-						<Button asChild size="xs" variant="outline">
-							<a href={`${API_URL}/api/connections/figma/start`}>
-								{connections.figma ? "Reconnect" : "Connect"}
-							</a>
-						</Button>
-					)}
-				</div>
-				<div className="flex items-center justify-between gap-2 text-xs">
-					<span className="text-muted-foreground">
-						Confluence {connections.confluence ? "connected" : "not connected"}
-					</span>
-					{canManageConnections && (
-						<Button asChild size="xs" variant="outline">
-							<a href={`${API_URL}/api/connections/confluence/start`}>
-								{connections.confluence ? "Reconnect" : "Connect"}
-							</a>
-						</Button>
-					)}
-				</div>
-				{connections.figma && canManageConnections && (
-					<form onSubmit={watchFigmaFile} className="flex gap-1">
-						<Input
-							type="url"
-							value={figmaFileUrl}
-							onChange={(event) => setFigmaFileUrl(event.target.value)}
-							placeholder="Figma file URL"
-							required
-						/>
-						<Button type="submit" size="xs" disabled={watchingFigma}>
-							Watch
-						</Button>
-					</form>
-				)}
-				{figmaNotice && (
-					<p className="text-[10px] text-muted-foreground">{figmaNotice}</p>
-				)}
-				{!canManageConnections && (
-					<p className="text-[10px] text-muted-foreground">
-						Only organization owners and admins can manage connections.
-					</p>
-				)}
-			</div>
+			<ProviderConsentControls canManage={canManageSettings} />
+			<SourceControls
+				projectId={projectId}
+				canManageConnections={canManageConnections}
+				onNodeAdded={onNodeAdded}
+			/>
 			<GitHubSettings
 				projectId={projectId}
 				canManageSettings={canManageSettings}
@@ -1395,6 +1452,8 @@ function ArtifactPanel({
 	artifactId,
 	title: initialTitle,
 	body: initialBody,
+	kind,
+	canPublish,
 	sources,
 	onSourceSelected,
 	onSaved,
@@ -1403,6 +1462,8 @@ function ArtifactPanel({
 	artifactId: string
 	title: string
 	body: string
+	kind: string | null
+	canPublish: boolean
 	sources: { documentId: string; title: string; url: string | null }[]
 	onSourceSelected: (documentId: string) => void
 	onSaved: () => Promise<void>
@@ -1423,6 +1484,25 @@ function ArtifactPanel({
 	const [comparisonId, setComparisonId] = useState<string | null>(null)
 	const [busy, setBusy] = useState(false)
 	const [error, setError] = useState<string | null>(null)
+	const [publicationPreview, setPublicationPreview] = useState<{
+		repository: string
+		baseBranch: string
+		branch: string
+		approvalToken: string
+		files: string[]
+		citations: { documentId: string; title: string; url: string | null }[]
+		repositoryReady: boolean
+		errors: string[]
+	} | null>(null)
+	const [publications, setPublications] = useState<
+		{
+			id: string
+			status: string
+			branch: string
+			pullRequestUrl: string | null
+			error: string | null
+		}[]
+	>([])
 
 	const loadRevisions = useCallback(async () => {
 		const result = await apiGet<{
@@ -1445,6 +1525,32 @@ function ArtifactPanel({
 			),
 		)
 	}, [loadRevisions])
+
+	const loadPublications = useCallback(async () => {
+		if (kind !== "react_prototype") return
+		const result = await apiGet<{ publications: typeof publications }>(
+			`/api/artifacts/${artifactId}/publications`,
+		)
+		setPublications(result.publications)
+	}, [artifactId, kind])
+
+	useEffect(() => {
+		loadPublications().catch(() => undefined)
+	}, [loadPublications])
+
+	useEffect(() => {
+		if (
+			!publications.some((publication) =>
+				["queued", "running"].includes(publication.status),
+			)
+		)
+			return
+		const timer = window.setInterval(
+			() => loadPublications().catch(() => undefined),
+			3_000,
+		)
+		return () => window.clearInterval(timer)
+	}, [loadPublications, publications])
 
 	async function save(event: React.FormEvent) {
 		event.preventDefault()
@@ -1474,6 +1580,46 @@ function ArtifactPanel({
 			setError(
 				cause instanceof Error ? cause.message : "Could not branch artifact",
 			)
+		} finally {
+			setBusy(false)
+		}
+	}
+
+	async function reviewPublication() {
+		setBusy(true)
+		setError(null)
+		try {
+			setPublicationPreview(
+				await apiSend(
+					"POST",
+					`/api/artifacts/${artifactId}/publication-preview`,
+					{},
+				),
+			)
+		} catch (cause) {
+			setError(
+				cause instanceof Error
+					? cause.message
+					: "Publication validation failed",
+			)
+		} finally {
+			setBusy(false)
+		}
+	}
+
+	async function approvePublication() {
+		setBusy(true)
+		setError(null)
+		try {
+			if (!publicationPreview) throw new Error("Review publication first")
+			await apiSend("POST", `/api/artifacts/${artifactId}/publish`, {
+				approved: true,
+				approvalToken: publicationPreview.approvalToken,
+			})
+			setPublicationPreview(null)
+			await loadPublications()
+		} catch (cause) {
+			setError(cause instanceof Error ? cause.message : "Publication failed")
 		} finally {
 			setBusy(false)
 		}
@@ -1568,6 +1714,81 @@ function ArtifactPanel({
 					</pre>
 				</details>
 			)}
+			{kind === "react_prototype" && canPublish && (
+				<section className="space-y-2 border-t border-border pt-4">
+					<div className="flex items-center justify-between gap-2">
+						<p className="text-xs font-medium">GitHub publication</p>
+						<Button
+							type="button"
+							size="xs"
+							variant="outline"
+							disabled={busy}
+							onClick={reviewPublication}
+						>
+							<GitPullRequest /> Review
+						</Button>
+					</div>
+					{publicationPreview && (
+						<div className="space-y-2 border-t border-border/70 pt-2 text-[10px]">
+							<p className="font-medium">{publicationPreview.repository}</p>
+							<p className="break-all text-muted-foreground">
+								{publicationPreview.baseBranch} → {publicationPreview.branch}
+							</p>
+							<ul className="max-h-24 overflow-auto font-mono text-muted-foreground">
+								{publicationPreview.files.map((file) => (
+									<li key={file}>{file}</li>
+								))}
+							</ul>
+							<p className="text-muted-foreground">
+								{publicationPreview.citations.length} evidence citations ·
+								approved imports and compilation validated
+							</p>
+							{publicationPreview.errors.map((message) => (
+								<p key={message} className="text-red-600">
+									{message}
+								</p>
+							))}
+							<Button
+								type="button"
+								size="xs"
+								disabled={
+									busy ||
+									!publicationPreview.repositoryReady ||
+									publicationPreview.errors.length > 0
+								}
+								onClick={approvePublication}
+							>
+								Approve and publish
+							</Button>
+						</div>
+					)}
+					{publications.map((publication) => (
+						<div
+							key={publication.id}
+							className="flex items-center justify-between gap-2 border-t border-border/70 pt-2 text-[10px]"
+						>
+							<span
+								className={
+									publication.error ? "text-red-600" : "text-muted-foreground"
+								}
+							>
+								{publication.error ??
+									`${publication.branch} · ${publication.status}`}
+							</span>
+							{publication.pullRequestUrl && (
+								<a
+									className="font-medium text-blue-600"
+									href={publication.pullRequestUrl}
+									target="_blank"
+									rel="noreferrer"
+								>
+									Open PR
+								</a>
+							)}
+						</div>
+					))}
+				</section>
+			)}
 			{comparison && currentRevision && (
 				<div className="space-y-2 border-t border-border pt-4">
 					<div className="flex items-center justify-between">
@@ -1601,10 +1822,12 @@ function SharePanel({
 	projectId,
 	visibility: initialVisibility,
 	teamId,
+	canManage,
 }: {
 	projectId: string
 	visibility: "personal" | "team" | "org"
 	teamId: string | null
+	canManage: boolean
 }) {
 	const [visibility, setVisibility] = useState(initialVisibility)
 	const [selectedTeamId, setSelectedTeamId] = useState(teamId)
@@ -1620,12 +1843,21 @@ function SharePanel({
 	const [busy, setBusy] = useState(false)
 	const [error, setError] = useState<string | null>(null)
 	const [teams, setTeams] = useState<{ id: string; name: string }[]>([])
+	const [members, setMembers] = useState<ProjectMember[]>([])
+	const [memberEmail, setMemberEmail] = useState("")
+	const [memberRole, setMemberRole] = useState<"editor" | "viewer">("editor")
 
 	const loadLinks = useCallback(async () => {
-		const result = await apiGet<{ shareLinks: typeof links }>(
-			`/api/projects/${projectId}/share-links`,
-		)
-		setLinks(result.shareLinks)
+		const [linkResult, memberResult] = await Promise.all([
+			apiGet<{ shareLinks: typeof links }>(
+				`/api/projects/${projectId}/share-links`,
+			),
+			apiGet<{ members: ProjectMember[] }>(
+				`/api/projects/${projectId}/members`,
+			),
+		])
+		setLinks(linkResult.shareLinks)
+		setMembers(memberResult.members)
 	}, [projectId])
 
 	useEffect(() => {
@@ -1704,8 +1936,136 @@ function SharePanel({
 		}
 	}
 
+	async function addMember(event: React.FormEvent) {
+		event.preventDefault()
+		setBusy(true)
+		setError(null)
+		try {
+			await apiSend("PUT", `/api/projects/${projectId}/members`, {
+				email: memberEmail,
+				role: memberRole,
+			})
+			setMemberEmail("")
+			await loadLinks()
+		} catch (cause) {
+			setError(cause instanceof Error ? cause.message : "Could not add member")
+		} finally {
+			setBusy(false)
+		}
+	}
+
+	async function updateMember(userId: string, role: "editor" | "viewer") {
+		setBusy(true)
+		setError(null)
+		try {
+			await apiSend("PATCH", `/api/projects/${projectId}/members/${userId}`, {
+				role,
+			})
+			await loadLinks()
+		} catch (cause) {
+			setError(
+				cause instanceof Error ? cause.message : "Could not update member",
+			)
+		} finally {
+			setBusy(false)
+		}
+	}
+
+	async function removeMember(userId: string) {
+		setBusy(true)
+		setError(null)
+		try {
+			await apiDelete(`/api/projects/${projectId}/members/${userId}`)
+			await loadLinks()
+		} catch (cause) {
+			setError(
+				cause instanceof Error ? cause.message : "Could not remove member",
+			)
+		} finally {
+			setBusy(false)
+		}
+	}
+
 	return (
 		<div className="space-y-4">
+			<div className="space-y-2">
+				<p className="text-xs font-medium">Project members</p>
+				{members.map((member) => (
+					<div
+						key={member.userId}
+						className="flex items-center gap-2 border-b border-border/70 py-1.5 last:border-0"
+					>
+						<div className="min-w-0 flex-1">
+							<p className="truncate text-xs">{member.name}</p>
+							<p className="truncate text-[10px] text-muted-foreground">
+								{member.email}
+							</p>
+						</div>
+						{member.role === "owner" || !canManage ? (
+							<span className="text-[10px] capitalize text-muted-foreground">
+								{member.role}
+							</span>
+						) : (
+							<>
+								<select
+									value={member.role}
+									disabled={busy}
+									onChange={(event) =>
+										void updateMember(
+											member.userId,
+											event.target.value as "editor" | "viewer",
+										)
+									}
+									className="h-7 border border-input bg-background px-1 text-[10px]"
+								>
+									<option value="editor">Editor</option>
+									<option value="viewer">Viewer</option>
+								</select>
+								<Button
+									variant="ghost"
+									size="icon-xs"
+									aria-label={`Remove ${member.name}`}
+									title={`Remove ${member.name}`}
+									disabled={busy}
+									onClick={() => removeMember(member.userId)}
+								>
+									<Trash2 />
+								</Button>
+							</>
+						)}
+					</div>
+				))}
+				{canManage && (
+					<form className="flex gap-1" onSubmit={addMember}>
+						<Input
+							type="email"
+							value={memberEmail}
+							onChange={(event) => setMemberEmail(event.target.value)}
+							placeholder="teammate@company.com"
+							required
+						/>
+						<select
+							value={memberRole}
+							onChange={(event) =>
+								setMemberRole(event.target.value as "editor" | "viewer")
+							}
+							className="h-9 rounded-md border border-input bg-background px-1 text-xs"
+						>
+							<option value="editor">Editor</option>
+							<option value="viewer">Viewer</option>
+						</select>
+						<Button
+							type="submit"
+							size="icon"
+							aria-label="Add project member"
+							title="Add project member"
+							disabled={busy}
+						>
+							<UserPlus />
+						</Button>
+					</form>
+				)}
+			</div>
 			<div className="space-y-1.5">
 				<label className="text-xs font-medium" htmlFor="project-visibility">
 					Project access
@@ -1717,7 +2077,7 @@ function SharePanel({
 							? `team:${selectedTeamId}`
 							: visibility
 					}
-					disabled={busy}
+					disabled={busy || !canManage}
 					onChange={(event) => updateVisibility(event.target.value)}
 					className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
 				>
@@ -1738,7 +2098,7 @@ function SharePanel({
 				<Button
 					className="mt-3 w-full"
 					variant="outline"
-					disabled={busy}
+					disabled={busy || !canManage}
 					onClick={createLink}
 				>
 					<Globe2 /> Create read-only link

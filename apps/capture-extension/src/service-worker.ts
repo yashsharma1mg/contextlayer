@@ -1,18 +1,41 @@
+export {}
+
 type Settings = { apiUrl?: string; projectId?: string; captureToken?: string }
+
+type Redaction = {
+	x: number
+	y: number
+	width: number
+	height: number
+	label: string
+	locked: boolean
+}
 
 function captureOutline() {
 	const maxNodes = 350
 	let seen = 0
+	const redactions: Redaction[] = []
 	const isVisible = (element: Element) => {
 		const style = getComputedStyle(element)
 		const rect = element.getBoundingClientRect()
 		return (
 			style.display !== "none" &&
 			style.visibility !== "hidden" &&
+			rect.right > 0 &&
+			rect.bottom > 0 &&
+			rect.left < innerWidth &&
+			rect.top < innerHeight &&
 			rect.width > 0 &&
 			rect.height > 0
 		)
 	}
+	const ownText = (element: Element) =>
+		Array.from(element.childNodes)
+			.filter((child) => child.nodeType === Node.TEXT_NODE)
+			.map((child) => child.textContent || "")
+			.join(" ")
+			.trim()
+			.slice(0, 180) || undefined
 	const walk = (
 		element: Element,
 		depth = 0,
@@ -22,14 +45,31 @@ function captureOutline() {
 		const html = element as HTMLElement
 		const style = getComputedStyle(element)
 		const tag = element.tagName.toLowerCase()
-		const sensitive = tag === "input" || tag === "textarea" || tag === "select"
+		if (["script", "style", "noscript", "template"].includes(tag)) return null
+		const sensitive =
+			tag === "input" ||
+			tag === "textarea" ||
+			tag === "select" ||
+			element.getAttribute("contenteditable") === "true"
+		if (sensitive) {
+			const rect = element.getBoundingClientRect()
+			const left = Math.max(0, rect.left)
+			const top = Math.max(0, rect.top)
+			redactions.push({
+				x: left,
+				y: top,
+				width: Math.max(0, Math.min(innerWidth, rect.right) - left),
+				height: Math.max(0, Math.min(innerHeight, rect.bottom) - top),
+				label: element.getAttribute("aria-label") || tag,
+				locked: true,
+			})
+		}
 		const node: Record<string, unknown> = {
 			tag,
 			role: element.getAttribute("role") || undefined,
 			label: element.getAttribute("aria-label") || undefined,
-			text: sensitive
-				? undefined
-				: (html.innerText || "").trim().slice(0, 180) || undefined,
+			text: sensitive ? undefined : ownText(element),
+			redacted: sensitive || undefined,
 			interactive:
 				["a", "button", "input", "select", "textarea"].includes(tag) ||
 				html.tabIndex >= 0,
@@ -49,11 +89,14 @@ function captureOutline() {
 		if (children.length) node.children = children
 		return node
 	}
-	return JSON.stringify({
-		root: walk(document.body),
-		title: document.title,
-		capturedAt: new Date().toISOString(),
-	})
+	return {
+		domOutline: JSON.stringify({
+			root: walk(document.body),
+			title: document.title,
+			capturedAt: new Date().toISOString(),
+		}),
+		redactions,
+	}
 }
 
 async function settings(): Promise<Settings> {
@@ -74,39 +117,51 @@ chrome.action.onClicked.addListener(async (tab) => {
 			await chrome.runtime.openOptionsPage()
 			return
 		}
-		const [{ result: domOutline }] = await chrome.scripting.executeScript({
+		const [{ result: capture }] = await chrome.scripting.executeScript({
 			target: { tabId: tab.id },
 			func: captureOutline,
 		})
+		if (!capture) throw new Error("The page could not be inspected")
 		const screenshot = await chrome.tabs.captureVisibleTab(tab.windowId, {
 			format: "png",
 		})
 		const previousKey = `previousCapture:${config.projectId}`
-		const saved = await chrome.storage.local.get(previousKey)
-		const response = await fetch(`${config.apiUrl}/api/capture/import`, {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: `Bearer ${config.captureToken}`,
-			},
-			body: JSON.stringify({
+		const sessionKey = `flowSession:${config.projectId}`
+		const stepKey = `flowStep:${config.projectId}`
+		const saved = await chrome.storage.local.get([
+			previousKey,
+			sessionKey,
+			stepKey,
+		])
+		const flowSessionId =
+			typeof saved[sessionKey] === "string"
+				? saved[sessionKey]
+				: crypto.randomUUID()
+		const flowStep = typeof saved[stepKey] === "number" ? saved[stepKey] : 0
+		if (!saved[sessionKey]) {
+			await chrome.storage.local.set({
+				[sessionKey]: flowSessionId,
+				[stepKey]: flowStep,
+			})
+		}
+		await chrome.storage.session.set({
+			pendingCapture: {
+				apiUrl: config.apiUrl,
 				projectId: config.projectId,
+				captureToken: config.captureToken,
 				title: tab.title || new URL(tab.url).hostname,
 				url: tab.url,
-				domOutline,
+				domOutline: capture.domOutline,
 				screenshot,
-				metadata: {
-					viewport: { width: tab.width, height: tab.height },
-					extension: "capture-extension",
-				},
+				redactions: capture.redactions,
+				viewport: { width: tab.width, height: tab.height },
 				previousCaptureId: saved[previousKey],
-			}),
+				flowSessionId,
+				flowStep,
+			},
 		})
-		if (!response.ok) throw new Error(`Capture failed (${response.status})`)
-		const payload = (await response.json()) as { capture: { id: string } }
-		await chrome.storage.local.set({ [previousKey]: payload.capture.id })
-		await setBadge("OK", "#16a34a")
-		setTimeout(() => chrome.action.setBadgeText({ text: "" }), 2_000)
+		await chrome.tabs.create({ url: chrome.runtime.getURL("preview.html") })
+		await setBadge("…", "#2563eb")
 	} catch (error) {
 		console.error("Context Layer capture failed", error)
 		await setBadge("!", "#dc2626")

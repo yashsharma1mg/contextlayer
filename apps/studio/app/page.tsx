@@ -5,8 +5,7 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { authClient, useSession } from "@/lib/auth-client"
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787"
+import { API_URL } from "@/lib/api"
 
 interface Source {
 	documentId: string

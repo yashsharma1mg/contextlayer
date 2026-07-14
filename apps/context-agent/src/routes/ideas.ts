@@ -4,10 +4,13 @@ import {
 	db,
 	ideaComments,
 	ideas,
+	member,
 	projectShareLinks,
 	projectGitHubSettings,
+	projectMembers,
 	projects,
 	team,
+	user,
 } from "@repo/db"
 import { generateObject } from "ai"
 import { and, desc, eq, inArray } from "drizzle-orm"
@@ -15,10 +18,17 @@ import { Hono } from "hono"
 import { createHash, randomBytes } from "node:crypto"
 import { z } from "zod"
 import { requireCaller } from "../lib/caller"
+import { syncProjectCaptureGrants } from "../lib/capture-ingestion"
 import { generateUi } from "../lib/generate-ui"
 import { isRepositoryPath } from "../lib/github-publication"
 import { openrouter, withModelFallback } from "../lib/openrouter"
-import { getVisibleProject, projectVisibility } from "../lib/project-access"
+import { requireProviderConsent } from "../lib/provider-consent"
+import {
+	getProjectAccess,
+	getVisibleProject,
+	projectRoleAllows,
+	projectVisibility,
+} from "../lib/project-access"
 import { type SearchResult, searchMemories } from "../lib/search"
 
 export const ideasRoute = new Hono()
@@ -63,6 +73,12 @@ ideasRoute.post(
 				.values({ name, orgId: caller.orgId, ownerUserId: caller.userId })
 				.returning()
 			if (!project) throw new Error("Project creation returned no row")
+			await tx.insert(projectMembers).values({
+				projectId: project.id,
+				userId: caller.userId,
+				role: "owner",
+				createdBy: caller.userId,
+			})
 			const [canvas] = await tx
 				.insert(canvases)
 				.values({ projectId: project.id, name: "Workspace" })
@@ -85,9 +101,149 @@ ideasRoute.get("/projects", async (c) => {
 
 ideasRoute.get("/projects/:id", async (c) => {
 	const caller = await requireCaller(c)
-	const project = await getVisibleProject(c.req.param("id"), caller)
-	if (!project) return c.json({ error: "Project not found" }, 404)
-	return c.json({ project })
+	const access = await getProjectAccess(c.req.param("id"), caller)
+	if (!access) return c.json({ error: "Project not found" }, 404)
+	return c.json({ project: access.project, projectRole: access.role })
+})
+
+ideasRoute.get("/projects/:id/members", async (c) => {
+	const caller = await requireCaller(c)
+	const access = await getProjectAccess(c.req.param("id"), caller)
+	if (!access) return c.json({ error: "Project not found" }, 404)
+	const members = await db
+		.select({
+			userId: projectMembers.userId,
+			role: projectMembers.role,
+			name: user.name,
+			email: user.email,
+			createdAt: projectMembers.createdAt,
+		})
+		.from(projectMembers)
+		.innerJoin(user, eq(user.id, projectMembers.userId))
+		.where(eq(projectMembers.projectId, access.project.id))
+		.orderBy(user.name)
+	return c.json({ members, projectRole: access.role })
+})
+
+const memberRoleSchema = z.object({ role: z.enum(["editor", "viewer"]) })
+
+ideasRoute.put(
+	"/projects/:id/members",
+	zValidator(
+		"json",
+		memberRoleSchema.extend({ email: z.string().trim().email().max(320) }),
+	),
+	async (c) => {
+		const caller = await requireCaller(c)
+		const access = await getProjectAccess(c.req.param("id"), caller)
+		if (!access) return c.json({ error: "Project not found" }, 404)
+		if (access.role !== "owner") {
+			return c.json({ error: "Project owner access required" }, 403)
+		}
+		const input = c.req.valid("json")
+		const [organizationUser] = await db
+			.select({ id: user.id })
+			.from(user)
+			.innerJoin(
+				member,
+				and(
+					eq(member.userId, user.id),
+					eq(member.organizationId, caller.orgId),
+				),
+			)
+			.where(eq(user.email, input.email))
+			.limit(1)
+		if (!organizationUser) {
+			return c.json({ error: "No organization member has that email" }, 404)
+		}
+		if (organizationUser.id === access.project.ownerUserId) {
+			return c.json({ error: "This user already owns the project" }, 409)
+		}
+		const [membership] = await db
+			.insert(projectMembers)
+			.values({
+				projectId: access.project.id,
+				userId: organizationUser.id,
+				role: input.role,
+				createdBy: caller.userId,
+			})
+			.onConflictDoUpdate({
+				target: [projectMembers.projectId, projectMembers.userId],
+				set: { role: input.role, updatedAt: new Date() },
+			})
+			.returning()
+		await syncProjectCaptureGrants(access.project.id)
+		return c.json({ membership }, 201)
+	},
+)
+
+ideasRoute.patch(
+	"/projects/:id/members/:userId",
+	zValidator("json", memberRoleSchema),
+	async (c) => {
+		const caller = await requireCaller(c)
+		const access = await getProjectAccess(c.req.param("id"), caller)
+		if (!access) return c.json({ error: "Project not found" }, 404)
+		if (access.role !== "owner") {
+			return c.json({ error: "Project owner access required" }, 403)
+		}
+		const targetUserId = c.req.param("userId")
+		if (targetUserId === access.project.ownerUserId) {
+			return c.json({ error: "The project owner role cannot be changed" }, 409)
+		}
+		const [organizationMember] = await db
+			.select({ userId: member.userId })
+			.from(member)
+			.where(
+				and(
+					eq(member.organizationId, caller.orgId),
+					eq(member.userId, targetUserId),
+				),
+			)
+			.limit(1)
+		if (!organizationMember) {
+			return c.json({ error: "User is not an organization member" }, 404)
+		}
+		const [membership] = await db
+			.insert(projectMembers)
+			.values({
+				projectId: access.project.id,
+				userId: targetUserId,
+				role: c.req.valid("json").role,
+				createdBy: caller.userId,
+			})
+			.onConflictDoUpdate({
+				target: [projectMembers.projectId, projectMembers.userId],
+				set: { role: c.req.valid("json").role, updatedAt: new Date() },
+			})
+			.returning()
+		await syncProjectCaptureGrants(access.project.id)
+		return c.json({ membership })
+	},
+)
+
+ideasRoute.delete("/projects/:id/members/:userId", async (c) => {
+	const caller = await requireCaller(c)
+	const access = await getProjectAccess(c.req.param("id"), caller)
+	if (!access) return c.json({ error: "Project not found" }, 404)
+	if (access.role !== "owner") {
+		return c.json({ error: "Project owner access required" }, 403)
+	}
+	if (c.req.param("userId") === access.project.ownerUserId) {
+		return c.json({ error: "The project owner cannot be removed" }, 409)
+	}
+	const [membership] = await db
+		.delete(projectMembers)
+		.where(
+			and(
+				eq(projectMembers.projectId, access.project.id),
+				eq(projectMembers.userId, c.req.param("userId")),
+			),
+		)
+		.returning()
+	if (!membership) return c.json({ error: "Project member not found" }, 404)
+	await syncProjectCaptureGrants(access.project.id)
+	return c.json({ membership })
 })
 
 ideasRoute.get("/projects/:id/github", async (c) => {
@@ -158,6 +314,7 @@ ideasRoute.patch(
 			)
 			.returning()
 		if (!updated) return c.json({ error: "Not found or not the owner" }, 404)
+		await syncProjectCaptureGrants(updated.id)
 		return c.json({ project: updated })
 	},
 )
@@ -283,12 +440,12 @@ const generateSchema = z.object({
 })
 
 const toSourceRefs = (results: SearchResult[]) =>
-	[
-		...new Map(results.map((result) => [result.documentId, result])).values(),
-	].map((result) => ({
+	results.map((result) => ({
 		documentId: result.documentId,
+		chunkId: result.chunkId,
 		title: result.title,
 		url: result.url,
+		provenance: result.chunkProvenance,
 	}))
 
 const conceptSchema = z.object({
@@ -305,8 +462,18 @@ ideasRoute.post(
 	async (c) => {
 		const caller = await requireCaller(c)
 		const body = c.req.valid("json")
-		const project = await getVisibleProject(body.projectId, caller)
-		if (!project) return c.json({ error: "Project not found" }, 404)
+		const access = await getProjectAccess(body.projectId, caller)
+		if (!access) return c.json({ error: "Project not found" }, 404)
+		if (!projectRoleAllows(access.role, "editor")) {
+			return c.json({ error: "Project editor access required" }, 403)
+		}
+		const project = access.project
+		await requireProviderConsent({
+			orgId: caller.orgId,
+			userId: caller.userId,
+			provider: "openrouter",
+			purpose: "generation",
+		})
 
 		const grounding = await searchMemories({
 			q: body.prompt,
@@ -349,8 +516,18 @@ ideasRoute.post(
 ideasRoute.post("/ideas/ui", zValidator("json", generateSchema), async (c) => {
 	const caller = await requireCaller(c)
 	const body = c.req.valid("json")
-	const project = await getVisibleProject(body.projectId, caller)
-	if (!project) return c.json({ error: "Project not found" }, 404)
+	const access = await getProjectAccess(body.projectId, caller)
+	if (!access) return c.json({ error: "Project not found" }, 404)
+	if (!projectRoleAllows(access.role, "editor")) {
+		return c.json({ error: "Project editor access required" }, 403)
+	}
+	const project = access.project
+	await requireProviderConsent({
+		orgId: caller.orgId,
+		userId: caller.userId,
+		provider: "openrouter",
+		purpose: "generation",
+	})
 	const grounding = await searchMemories({
 		q: body.prompt,
 		...caller,

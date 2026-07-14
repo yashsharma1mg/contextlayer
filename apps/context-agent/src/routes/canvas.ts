@@ -13,8 +13,10 @@ import {
 	designSystemVersions,
 	designSystems,
 	documents,
+	generatedFileSets,
 	ideas,
 	projectShareLinks,
+	projectMembers,
 	projects,
 } from "@repo/db"
 import { generateObject } from "ai"
@@ -24,13 +26,21 @@ import { z } from "zod"
 import { createHash, randomBytes } from "node:crypto"
 import { requireCaller } from "../lib/caller"
 import { documentVisibility } from "../lib/access-policy"
-import { generateUi } from "../lib/generate-ui"
 import { artifactKinds, resolveArtifactKind } from "../lib/generation-routing"
 import { openrouter, withModelFallback } from "../lib/openrouter"
-import { getVisibleProject } from "../lib/project-access"
-import { reactSourceFromUiPlan } from "../lib/react-source"
+import { getProjectAccess, projectRoleAllows } from "../lib/project-access"
+import { reactFilesFromUiPlan } from "../lib/react-source"
 import { searchMemories } from "../lib/search"
-import { type UiPlan, uiPlanSchema, validateUiPlan } from "../lib/ui-plan"
+import {
+	type UiPlan,
+	uiPlanSchema,
+	validateUiPlan,
+	validateUiPlanCitations,
+} from "../lib/ui-plan"
+import { validateGeneratedFiles } from "../lib/prototype-validation"
+import { redactCaptureOutline } from "../lib/capture-redaction"
+import { enqueueCaptureIngestion } from "../lib/capture-ingestion"
+import { readObject, storeObject } from "../lib/local-storage"
 
 export const canvasRoute = new Hono()
 
@@ -87,6 +97,9 @@ const canvasSnapshotSchema = z.object({
 			nodeId: z.string().nullable(),
 			authorUserId: z.string(),
 			body: z.string(),
+			mentions: z.array(z.string()).default([]),
+			resolvedAt: z.coerce.date().nullable().optional(),
+			resolvedBy: z.string().nullable().optional(),
 		}),
 	),
 })
@@ -119,13 +132,13 @@ async function visibleCanvas(
 		.where(eq(canvases.id, canvasId))
 		.limit(1)
 	if (!canvas) return null
-	const project = await getVisibleProject(canvas.projectId, {
+	const access = await getProjectAccess(canvas.projectId, {
 		userId,
 		orgId,
 		teamIds,
 		role: "member",
 	})
-	return project ? { canvas, project } : null
+	return access ? { canvas, ...access } : null
 }
 
 async function snapshot(canvasId: string) {
@@ -170,7 +183,7 @@ async function checkpoint(
 	})
 }
 
-async function workspace(canvasId: string) {
+async function workspace(canvasId: string, assetBase: string) {
 	const [nodes, edges, comments] = await Promise.all([
 		db
 			.select({
@@ -199,6 +212,7 @@ async function workspace(canvasId: string) {
 				captureTitle: captures.title,
 				captureUrl: captures.url,
 				captureScreenshot: captures.screenshot,
+				captureScreenshotObjectId: captures.screenshotObjectId,
 				designAssetName: designAssets.name,
 				designAssetKind: designAssets.kind,
 				designAssetDescription: designAssets.description,
@@ -217,7 +231,47 @@ async function workspace(canvasId: string) {
 			.where(eq(canvasComments.canvasId, canvasId))
 			.orderBy(asc(canvasComments.createdAt)),
 	])
-	return { nodes, edges, comments }
+	return {
+		nodes: nodes.map((node) => ({
+			...node,
+			captureScreenshot: node.captureScreenshotObjectId
+				? `${assetBase}/captures/${node.captureId}/screenshot`
+				: node.captureScreenshot,
+		})),
+		edges,
+		comments,
+	}
+}
+
+async function captureScreenshot(captureId: string) {
+	const [record] = await db
+		.select({
+			projectId: captures.projectId,
+			orgId: projects.orgId,
+			objectId: captures.screenshotObjectId,
+			legacy: captures.screenshot,
+		})
+		.from(captures)
+		.innerJoin(projects, eq(projects.id, captures.projectId))
+		.where(eq(captures.id, captureId))
+		.limit(1)
+	if (!record) return null
+	if (record.objectId) {
+		const stored = await readObject(record.objectId, record.orgId)
+		if (!stored) return null
+		return {
+			projectId: record.projectId,
+			data: stored.data,
+			mimeType: stored.object.mimeType,
+		}
+	}
+	if (!record.legacy) return null
+	const [header, encoded] = record.legacy.split(",", 2)
+	return {
+		projectId: record.projectId,
+		data: Buffer.from(encoded ?? "", "base64"),
+		mimeType: header?.match(/^data:([^;]+)/)?.[1] ?? "image/png",
+	}
 }
 
 async function visibleArtifact(
@@ -230,14 +284,15 @@ async function visibleArtifact(
 		.where(eq(ideas.id, artifactId))
 		.limit(1)
 	if (!artifact) return null
-	const project = await getVisibleProject(artifact.projectId, caller)
-	return project ? { artifact, project } : null
+	const access = await getProjectAccess(artifact.projectId, caller)
+	return access ? { artifact, ...access } : null
 }
 
 canvasRoute.get("/projects/:projectId/canvas", async (c) => {
 	const caller = await requireCaller(c)
-	const project = await getVisibleProject(c.req.param("projectId"), caller)
-	if (!project) return c.json({ error: "Project not found" }, 404)
+	const access = await getProjectAccess(c.req.param("projectId"), caller)
+	if (!access) return c.json({ error: "Project not found" }, 404)
+	const { project, role } = access
 	const canvas = await canvasForProject(project.id)
 	const [pinnedDesignSystem] = project.pinnedDesignSystemVersionId
 		? await db
@@ -256,12 +311,27 @@ canvasRoute.get("/projects/:projectId/canvas", async (c) => {
 	return c.json({
 		project: {
 			...project,
+			projectRole: role,
 			pinnedDesignSystem: pinnedDesignSystem ?? null,
-			canManageProjectSettings: project.ownerUserId === caller.userId,
+			canEditProject: projectRoleAllows(role, "editor"),
+			canManageProjectSettings: role === "owner",
 			canManageConnections: caller.role === "owner" || caller.role === "admin",
 		},
 		canvas,
-		...(await workspace(canvas.id)),
+		...(await workspace(canvas.id, `${new URL(c.req.url).origin}/api`)),
+	})
+})
+
+canvasRoute.get("/captures/:id/screenshot", async (c) => {
+	const caller = await requireCaller(c)
+	const image = await captureScreenshot(c.req.param("id"))
+	if (!image || !(await getProjectAccess(image.projectId, caller))) {
+		return c.json({ error: "Capture not found" }, 404)
+	}
+	return c.body(image.data, 200, {
+		"Content-Type": image.mimeType,
+		"Cache-Control": "private, max-age=300",
+		"X-Content-Type-Options": "nosniff",
 	})
 })
 
@@ -293,6 +363,9 @@ canvasRoute.patch(
 		const caller = await requireCaller(c)
 		const visible = await visibleArtifact(c.req.param("id"), caller)
 		if (!visible) return c.json({ error: "Artifact not found" }, 404)
+		if (!projectRoleAllows(visible.role, "editor")) {
+			return c.json({ error: "Project editor access required" }, 403)
+		}
 		const input = c.req.valid("json")
 		const result = await db.transaction(async (tx) => {
 			const [latest] = await tx
@@ -336,6 +409,9 @@ canvasRoute.post(
 		const caller = await requireCaller(c)
 		const visible = await visibleArtifact(c.req.param("id"), caller)
 		if (!visible) return c.json({ error: "Artifact not found" }, 404)
+		if (!projectRoleAllows(visible.role, "editor")) {
+			return c.json({ error: "Project editor access required" }, 403)
+		}
 		const { revisionId } = c.req.valid("json")
 		const [source] = await db
 			.select()
@@ -455,7 +531,33 @@ canvasRoute.get("/shared/:token", async (c) => {
 			pinnedDesignSystem: null,
 		},
 		canvas,
-		...(await workspace(canvas.id)),
+		...(await workspace(
+			canvas.id,
+			`${new URL(c.req.url).origin}/api/shared/${c.req.param("token")}`,
+		)),
+	})
+})
+
+canvasRoute.get("/shared/:token/captures/:id/screenshot", async (c) => {
+	const image = await captureScreenshot(c.req.param("id"))
+	if (!image) return c.json({ error: "Capture not found" }, 404)
+	const [shareLink] = await db
+		.select({ id: projectShareLinks.id })
+		.from(projectShareLinks)
+		.where(
+			and(
+				eq(projectShareLinks.projectId, image.projectId),
+				eq(projectShareLinks.tokenHash, tokenHash(c.req.param("token"))),
+				isNull(projectShareLinks.revokedAt),
+				gt(projectShareLinks.expiresAt, new Date()),
+			),
+		)
+		.limit(1)
+	if (!shareLink) return c.json({ error: "Capture not found" }, 404)
+	return c.body(image.data, 200, {
+		"Content-Type": image.mimeType,
+		"Cache-Control": "private, max-age=300",
+		"X-Content-Type-Options": "nosniff",
 	})
 })
 
@@ -464,8 +566,12 @@ canvasRoute.post(
 	zValidator("json", z.object({ name: z.string().trim().min(1).max(120) })),
 	async (c) => {
 		const caller = await requireCaller(c)
-		const project = await getVisibleProject(c.req.param("projectId"), caller)
-		if (!project) return c.json({ error: "Project not found" }, 404)
+		const access = await getProjectAccess(c.req.param("projectId"), caller)
+		if (!access) return c.json({ error: "Project not found" }, 404)
+		if (!projectRoleAllows(access.role, "editor")) {
+			return c.json({ error: "Project editor access required" }, 403)
+		}
+		const project = access.project
 		const [canvas] = await db
 			.insert(canvases)
 			.values({ projectId: project.id, name: c.req.valid("json").name })
@@ -496,6 +602,9 @@ canvasRoute.post(
 			caller.teamIds,
 		)
 		if (!visible) return c.json({ error: "Canvas not found" }, 404)
+		if (!projectRoleAllows(visible.role, "editor")) {
+			return c.json({ error: "Project editor access required" }, 403)
+		}
 		const input = c.req.valid("json")
 		const [node] = await db
 			.insert(canvasNodes)
@@ -540,6 +649,9 @@ canvasRoute.patch(
 			caller.teamIds,
 		)
 		if (!visible) return c.json({ error: "Canvas not found" }, 404)
+		if (!projectRoleAllows(visible.role, "editor")) {
+			return c.json({ error: "Project editor access required" }, 403)
+		}
 		const input = c.req.valid("json")
 		const result = await db.transaction(async (tx) => {
 			const updated = []
@@ -599,6 +711,9 @@ canvasRoute.post(
 			caller.teamIds,
 		)
 		if (!visible) return c.json({ error: "Canvas not found" }, 404)
+		if (!projectRoleAllows(visible.role, "editor")) {
+			return c.json({ error: "Project editor access required" }, 403)
+		}
 		const input = c.req.valid("json")
 		if (input.sourceNodeId === input.targetNodeId) {
 			return c.json({ error: "A node cannot connect to itself" }, 400)
@@ -639,8 +754,12 @@ canvasRoute.post(
 	zValidator("json", positionedNodeSchema),
 	async (c) => {
 		const caller = await requireCaller(c)
-		const project = await getVisibleProject(c.req.param("projectId"), caller)
-		if (!project) return c.json({ error: "Project not found" }, 404)
+		const access = await getProjectAccess(c.req.param("projectId"), caller)
+		if (!access) return c.json({ error: "Project not found" }, 404)
+		if (!projectRoleAllows(access.role, "editor")) {
+			return c.json({ error: "Project editor access required" }, 403)
+		}
+		const project = access.project
 		const [document] = await db
 			.select()
 			.from(documents)
@@ -690,8 +809,12 @@ canvasRoute.post(
 	zValidator("json", positionedNodeSchema),
 	async (c) => {
 		const caller = await requireCaller(c)
-		const project = await getVisibleProject(c.req.param("projectId"), caller)
-		if (!project) return c.json({ error: "Project not found" }, 404)
+		const access = await getProjectAccess(c.req.param("projectId"), caller)
+		if (!access) return c.json({ error: "Project not found" }, 404)
+		if (!projectRoleAllows(access.role, "editor")) {
+			return c.json({ error: "Project editor access required" }, 403)
+		}
+		const project = access.project
 		if (!project.pinnedDesignSystemVersionId) {
 			return c.json({ error: "Project has no pinned design system" }, 409)
 		}
@@ -747,6 +870,9 @@ canvasRoute.delete("/canvases/:canvasId/nodes/:nodeId", async (c) => {
 		caller.teamIds,
 	)
 	if (!visible) return c.json({ error: "Canvas not found" }, 404)
+	if (!projectRoleAllows(visible.role, "editor")) {
+		return c.json({ error: "Project editor access required" }, 403)
+	}
 	await checkpoint(visible.canvas.id, caller.userId, "delete node")
 	const [node] = await db
 		.delete(canvasNodes)
@@ -770,6 +896,9 @@ canvasRoute.delete("/canvases/:canvasId/edges/:edgeId", async (c) => {
 		caller.teamIds,
 	)
 	if (!visible) return c.json({ error: "Canvas not found" }, 404)
+	if (!projectRoleAllows(visible.role, "editor")) {
+		return c.json({ error: "Project editor access required" }, 403)
+	}
 	const [edge] = await db
 		.delete(canvasEdges)
 		.where(
@@ -797,6 +926,7 @@ canvasRoute.post(
 		z.object({
 			nodeId: z.string().optional(),
 			body: z.string().trim().min(1).max(4_000),
+			mentions: z.array(z.string()).max(20).default([]),
 		}),
 	),
 	async (c) => {
@@ -821,6 +951,23 @@ canvasRoute.post(
 				)
 			if (!node) return c.json({ error: "Node not found" }, 404)
 		}
+		if (input.mentions.length) {
+			const mentionable = await db
+				.select({ userId: projectMembers.userId })
+				.from(projectMembers)
+				.where(
+					and(
+						eq(projectMembers.projectId, visible.project.id),
+						inArray(projectMembers.userId, input.mentions),
+					),
+				)
+			if (mentionable.length !== new Set(input.mentions).size) {
+				return c.json(
+					{ error: "A mentioned user cannot access this project" },
+					400,
+				)
+			}
+		}
 		const [comment] = await db
 			.insert(canvasComments)
 			.values({
@@ -830,6 +977,43 @@ canvasRoute.post(
 			})
 			.returning()
 		return c.json({ comment }, 201)
+	},
+)
+
+canvasRoute.post(
+	"/canvases/:canvasId/comments/:commentId/resolve",
+	async (c) => {
+		const caller = await requireCaller(c)
+		const visible = await visibleCanvas(
+			c.req.param("canvasId"),
+			caller.userId,
+			caller.orgId,
+			caller.teamIds,
+		)
+		if (!visible) return c.json({ error: "Canvas not found" }, 404)
+		const [comment] = await db
+			.select()
+			.from(canvasComments)
+			.where(
+				and(
+					eq(canvasComments.id, c.req.param("commentId")),
+					eq(canvasComments.canvasId, visible.canvas.id),
+				),
+			)
+			.limit(1)
+		if (!comment) return c.json({ error: "Comment not found" }, 404)
+		if (
+			comment.authorUserId !== caller.userId &&
+			!projectRoleAllows(visible.role, "editor")
+		) {
+			return c.json({ error: "Comment author or editor access required" }, 403)
+		}
+		const [updated] = await db
+			.update(canvasComments)
+			.set({ resolvedAt: new Date(), resolvedBy: caller.userId })
+			.where(eq(canvasComments.id, comment.id))
+			.returning()
+		return c.json({ comment: updated })
 	},
 )
 
@@ -860,6 +1044,9 @@ canvasRoute.post("/canvases/:id/revisions/:revisionId/restore", async (c) => {
 		caller.teamIds,
 	)
 	if (!visible) return c.json({ error: "Canvas not found" }, 404)
+	if (!projectRoleAllows(visible.role, "editor")) {
+		return c.json({ error: "Project editor access required" }, 403)
+	}
 	const [revision] = await db
 		.select()
 		.from(canvasRevisions)
@@ -921,7 +1108,7 @@ canvasRoute.post("/canvases/:id/revisions/:revisionId/restore", async (c) => {
 	return c.json({
 		project: visible.project,
 		canvas,
-		...(await workspace(visible.canvas.id)),
+		...(await workspace(visible.canvas.id, `${new URL(c.req.url).origin}/api`)),
 	})
 })
 
@@ -937,6 +1124,9 @@ canvasRoute.post(
 			caller.teamIds,
 		)
 		if (!visible) return c.json({ error: "Canvas not found" }, 404)
+		if (!projectRoleAllows(visible.role, "editor")) {
+			return c.json({ error: "Project editor access required" }, 403)
+		}
 		await checkpoint(
 			visible.canvas.id,
 			caller.userId,
@@ -963,8 +1153,12 @@ function tokenHash(token: string) {
 
 canvasRoute.post("/projects/:projectId/capture-tokens", async (c) => {
 	const caller = await requireCaller(c)
-	const project = await getVisibleProject(c.req.param("projectId"), caller)
-	if (!project) return c.json({ error: "Project not found" }, 404)
+	const access = await getProjectAccess(c.req.param("projectId"), caller)
+	if (!access) return c.json({ error: "Project not found" }, 404)
+	if (!projectRoleAllows(access.role, "editor")) {
+		return c.json({ error: "Project editor access required" }, 403)
+	}
+	const project = access.project
 	const token = randomBytes(32).toString("base64url")
 	const [created] = await db
 		.insert(captureTokens)
@@ -983,12 +1177,40 @@ canvasRoute.post(
 	zValidator("json", captureSchema),
 	async (c) => {
 		const caller = await requireCaller(c)
-		const project = await getVisibleProject(c.req.param("projectId"), caller)
-		if (!project) return c.json({ error: "Project not found" }, 404)
+		const access = await getProjectAccess(c.req.param("projectId"), caller)
+		if (!access) return c.json({ error: "Project not found" }, 404)
+		if (!projectRoleAllows(access.role, "editor")) {
+			return c.json({ error: "Project editor access required" }, 403)
+		}
+		const project = access.project
 		const input = c.req.valid("json")
 		const canvas = await canvasForProject(project.id)
 		await checkpoint(canvas.id, caller.userId, "add product capture")
 		const { previousCaptureId, x, y, ...captureInput } = input
+		const domOutline = redactCaptureOutline(captureInput.domOutline)
+		const domObject = await storeObject({
+			orgId: caller.orgId,
+			kind: "capture_dom",
+			data: Buffer.from(domOutline),
+			mimeType: "application/json",
+			metadata: { projectId: project.id, url: captureInput.url },
+		})
+		const screenshotBytes = captureInput.screenshot
+			? Buffer.from(captureInput.screenshot.split(",", 2)[1] ?? "", "base64")
+			: null
+		const screenshotObject = screenshotBytes?.length
+			? await storeObject({
+					orgId: caller.orgId,
+					kind: "capture_screenshot",
+					data: screenshotBytes,
+					mimeType:
+						captureInput.screenshot?.slice(
+							5,
+							captureInput.screenshot.indexOf(";"),
+						) || "image/png",
+					metadata: { projectId: project.id, url: captureInput.url },
+				})
+			: null
 		const result = await db.transaction(async (tx) => {
 			const [capture] = await tx
 				.insert(captures)
@@ -996,6 +1218,10 @@ canvasRoute.post(
 					projectId: project.id,
 					authorUserId: caller.userId,
 					...captureInput,
+					screenshot: null,
+					domOutline,
+					domObjectId: domObject.id,
+					screenshotObjectId: screenshotObject?.id,
 				})
 				.returning()
 			if (!capture) throw new Error("Capture creation returned no row")
@@ -1034,7 +1260,13 @@ canvasRoute.post(
 			}
 			return { capture, node }
 		})
-		return c.json(result, 201)
+		const job = await enqueueCaptureIngestion({
+			captureId: result.capture.id,
+			orgId: caller.orgId,
+			projectId: project.id,
+			userId: caller.userId,
+		})
+		return c.json({ ...result, job }, 201)
 	},
 )
 
@@ -1057,8 +1289,12 @@ canvasRoute.post(
 	zValidator("json", generateSchema),
 	async (c) => {
 		const caller = await requireCaller(c)
-		const project = await getVisibleProject(c.req.param("projectId"), caller)
-		if (!project) return c.json({ error: "Project not found" }, 404)
+		const access = await getProjectAccess(c.req.param("projectId"), caller)
+		if (!access) return c.json({ error: "Project not found" }, 404)
+		if (!projectRoleAllows(access.role, "editor")) {
+			return c.json({ error: "Project editor access required" }, 403)
+		}
+		const project = access.project
 		const input = c.req.valid("json")
 		const kind = resolveArtifactKind(input.prompt, input.kind)
 		const canvas = await canvasForProject(project.id)
@@ -1120,10 +1356,22 @@ canvasRoute.post(
 		let generatedCode: string | null = null
 		let codeFormat: "html" | "tsx" | undefined
 		let uiPlan: UiPlan | undefined
+		let generatedFiles: { path: string; content: string }[] | undefined
+		let approvedImportPaths: string[] = []
 		if (kind === "react_prototype") {
+			if (!project.pinnedDesignSystemVersionId) {
+				return c.json(
+					{
+						error:
+							"Pin an active design-system version before generating React",
+					},
+					409,
+				)
+			}
 			const approvedAssets = project.pinnedDesignSystemVersionId
 				? await db
 						.select({
+							id: designAssets.id,
 							name: designAssets.name,
 							description: designAssets.description,
 							kind: designAssets.kind,
@@ -1154,36 +1402,91 @@ canvasRoute.post(
 					),
 				)
 				.find((result) => result.success)
-			title = input.prompt.slice(0, 80)
-			if (selectedPlan?.success) {
-				uiPlan = selectedPlan.data
-				body = "React source generated from the selected validated UI plan."
-				generatedCode = reactSourceFromUiPlan(
-					selectedPlan.data,
-					approvedAssets.map((asset) => ({
-						name: asset.name,
-						kind: asset.kind,
-						data: {
-							...asset.data,
-							importPath: asset.importPath,
-							exportName: asset.exportName,
-						},
-					})),
+			if (!selectedPlan?.success) {
+				return c.json(
+					{
+						error:
+							"Select a validated interface specification before generating React",
+					},
+					409,
 				)
-				codeFormat = "tsx"
-			} else {
-				body = "Sandboxed HTML prototype grounded in selected product context."
-				generatedCode = await generateUi(
-					`${input.prompt}\n\nSelected canvas context:\n${selectedContext}`,
-					grounding,
-					approvedAssets,
-				)
-				codeFormat = "html"
 			}
+			uiPlan = selectedPlan.data
+			const mappedAssets = approvedAssets.map((asset) => ({
+				id: asset.id,
+				name: asset.name,
+				kind: asset.kind,
+				data: {
+					...asset.data,
+					importPath: asset.importPath,
+					exportName: asset.exportName,
+				},
+			}))
+			const planErrors = validateUiPlan(
+				uiPlan,
+				mappedAssets,
+				project.pinnedDesignSystemVersionId,
+			)
+			const citationIds = [
+				...new Set(uiPlan.citations.map((item) => item.documentId)),
+			]
+			const accessibleCitations = citationIds.length
+				? await db
+						.select({ documentId: documents.id })
+						.from(documents)
+						.where(
+							and(
+								eq(documents.orgId, caller.orgId),
+								inArray(documents.id, citationIds),
+								documentVisibility(caller),
+							),
+						)
+				: []
+			planErrors.push(
+				...validateUiPlanCitations(uiPlan, accessibleCitations, {
+					required: true,
+				}),
+			)
+			if (planErrors.length) {
+				return c.json(
+					{ error: `UI plan validation failed: ${planErrors.join("; ")}` },
+					422,
+				)
+			}
+			generatedFiles = reactFilesFromUiPlan(uiPlan, mappedAssets)
+			approvedImportPaths = mappedAssets.flatMap((asset) =>
+				typeof asset.data.importPath === "string"
+					? [asset.data.importPath]
+					: [],
+			)
+			const fileErrors = validateGeneratedFiles(
+				generatedFiles,
+				approvedImportPaths,
+			)
+			if (fileErrors.length) {
+				return c.json(
+					{ error: `React compilation failed: ${fileErrors.join("; ")}` },
+					422,
+				)
+			}
+			title = uiPlan.title
+			body =
+				"Multi-file React source generated from the selected validated UI plan."
+			generatedCode = generatedFiles
+				.map((file) => `// ${file.path}\n${file.content}`)
+				.join("\n\n")
+			codeFormat = "tsx"
 		} else if (kind === "interface_spec") {
+			if (!project.pinnedDesignSystemVersionId) {
+				return c.json(
+					{ error: "Pin an active design-system version before planning UI" },
+					409,
+				)
+			}
 			const approvedAssets = project.pinnedDesignSystemVersionId
 				? await db
 						.select({
+							id: designAssets.id,
 							name: designAssets.name,
 							kind: designAssets.kind,
 							data: designAssets.data,
@@ -1199,11 +1502,25 @@ canvasRoute.post(
 					model: openrouter.chat(model),
 					schema: uiPlanSchema,
 					system:
-						"Create an evidence-grounded UI plan. Use only approved component IDs, props, variants, and tokens. Include loading, empty, error, validation, permission, retry, and recovery states when relevant.",
-					prompt: `Canvas context:\n${selectedContext || "(none selected)"}\n\nKnowledge:\n${knowledge || "(no matching knowledge)"}\n\nApproved design assets:\n${JSON.stringify(approvedAssets)}\n\nRequest: ${input.prompt}`,
+						"Create an evidence-grounded UI plan pinned to the supplied manifest version. Use only approved asset IDs, component IDs, props, variants, and tokens. Explicitly cover permission, loading, empty, validation, error, retry, quota, and recovery states. Cite supplied document IDs.",
+					prompt: `Pinned manifest version: ${project.pinnedDesignSystemVersionId}\n\nCanvas context:\n${selectedContext || "(none selected)"}\n\nKnowledge with citation IDs:\n${knowledge || "(no matching knowledge)"}\n\nApproved design assets:\n${JSON.stringify(approvedAssets)}\n\nRequired citations:\n${JSON.stringify(grounding.map((source) => ({ documentId: source.documentId, title: source.title })))}\n\nRequest: ${input.prompt}`,
 				}),
 			)
-			const errors = validateUiPlan(object, approvedAssets)
+			const errors = validateUiPlan(
+				object,
+				approvedAssets,
+				project.pinnedDesignSystemVersionId,
+			)
+			errors.push(
+				...validateUiPlanCitations(
+					object,
+					grounding.map((source) => ({
+						documentId: source.documentId,
+						chunkId: source.chunkId,
+					})),
+					{ required: grounding.length > 0 },
+				),
+			)
 			if (errors.length) {
 				return c.json(
 					{ error: `UI plan validation failed: ${errors.join("; ")}` },
@@ -1240,8 +1557,10 @@ canvasRoute.post(
 					prompt: input.prompt,
 					sourceRefs: grounding.map((source) => ({
 						documentId: source.documentId,
+						chunkId: source.chunkId,
 						title: source.title,
 						url: source.url,
+						provenance: source.chunkProvenance,
 					})),
 				})
 				.returning()
@@ -1259,6 +1578,19 @@ canvasRoute.post(
 				},
 				sourceRefs: idea.sourceRefs ?? [],
 			})
+			if (generatedFiles && uiPlan) {
+				await tx.insert(generatedFileSets).values({
+					artifactId: idea.id,
+					targetFramework: uiPlan.targetFramework,
+					files: generatedFiles,
+					validation: {
+						manifestVersionId: uiPlan.manifestVersionId,
+						citations: uiPlan.citations,
+						approvedImports: approvedImportPaths,
+						compiled: false,
+					},
+				})
+			}
 			const [node] = await tx
 				.insert(canvasNodes)
 				.values({

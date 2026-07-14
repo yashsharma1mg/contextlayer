@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Review capture · Context Layer</title>
+		<style>
+			:root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+			* { box-sizing: border-box; }
+			body { margin: 0; color: #171717; background: #f7f7f5; }
+			header { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 64px; padding: 12px 20px; border-bottom: 1px solid #ddd; background: rgba(255,255,255,.96); }
+			h1 { margin: 0; font-size: 15px; }
+			p { margin: 3px 0 0; color: #666; font-size: 12px; }
+			.actions { display: flex; gap: 8px; }
+			button { height: 34px; padding: 0 12px; border: 1px solid #ccc; border-radius: 6px; background: white; color: #171717; font: inherit; cursor: pointer; }
+			button.primary { border-color: #1d4ed8; background: #2563eb; color: white; }
+			button:disabled { opacity: .5; cursor: default; }
+			main { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 18px; max-width: 1500px; margin: 0 auto; padding: 18px; }
+			.canvas-wrap { min-width: 0; overflow: auto; border: 1px solid #d8d8d4; background: white; }
+			canvas { display: block; width: 100%; height: auto; cursor: crosshair; }
+			aside { border-left: 1px solid #ddd; padding-left: 18px; }
+			aside h2 { margin: 0 0 10px; font-size: 12px; }
+			#redactions { display: grid; gap: 5px; }
+			.redaction { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid #e5e5e5; font-size: 11px; }
+			.redaction button { width: 26px; height: 26px; padding: 0; }
+			#status { min-height: 18px; color: #b91c1c; }
+			@media (max-width: 760px) { main { grid-template-columns: 1fr; } aside { border-left: 0; padding-left: 0; } }
+		</style>
+	</head>
+	<body>
+		<header>
+			<div><h1>Review capture</h1><p>Form controls are covered. Drag over anything else to redact it.</p></div>
+			<div class="actions"><button type="button" id="cancel">Cancel</button><button type="button" id="upload" class="primary">Add to Context Layer</button></div>
+		</header>
+		<main>
+			<div class="canvas-wrap"><canvas id="preview"></canvas></div>
+			<aside><h2>Redactions</h2><div id="redactions"></div><p id="status"></p></aside>
+		</main>
+		<script type="module" src="preview.js"></script>
+	</body>
+</html>

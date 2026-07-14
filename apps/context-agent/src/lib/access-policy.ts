@@ -1,5 +1,5 @@
-import { and, eq, inArray, or } from "drizzle-orm"
-import { documents } from "@repo/db/schema"
+import { and, eq, inArray, or, sql } from "drizzle-orm"
+import { documents, sourceAccessGrants } from "@repo/db/schema"
 import type { Caller } from "./caller"
 
 type ScopedResource = {
@@ -23,16 +23,31 @@ export function canAccessScopedResource(
 
 export function documentVisibility(caller: Caller) {
 	return or(
-		eq(documents.scope, "org"),
+		sql<boolean>`exists (
+			select 1 from ${sourceAccessGrants}
+			where ${and(
+				eq(sourceAccessGrants.documentId, documents.id),
+				eq(sourceAccessGrants.principalKind, "organization"),
+				eq(sourceAccessGrants.principalId, caller.orgId),
+			)}
+		)`,
+		sql<boolean>`exists (
+			select 1 from ${sourceAccessGrants}
+			where ${and(
+				eq(sourceAccessGrants.documentId, documents.id),
+				eq(sourceAccessGrants.principalKind, "user"),
+				eq(sourceAccessGrants.principalId, caller.userId),
+			)}
+		)`,
 		caller.teamIds.length > 0
-			? and(
-					eq(documents.scope, "team"),
-					inArray(documents.teamId, caller.teamIds),
-				)
+			? sql<boolean>`exists (
+				select 1 from ${sourceAccessGrants}
+				where ${and(
+					eq(sourceAccessGrants.documentId, documents.id),
+					eq(sourceAccessGrants.principalKind, "team"),
+					inArray(sourceAccessGrants.principalId, caller.teamIds),
+				)}
+			)`
 			: undefined,
-		and(
-			eq(documents.scope, "personal"),
-			eq(documents.ownerUserId, caller.userId),
-		),
 	)
 }

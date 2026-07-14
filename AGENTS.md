@@ -1,120 +1,55 @@
 # AGENTS.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+Guidance for coding agents working in Context Layer.
 
-## Repository Structure
+## Repository
 
-This is a **Turbo monorepo** containing multiple applications and shared packages:
+Context Layer is a Bun and Turborepo monorepo:
 
-### Applications (`apps/`)
-- **`web/`** - Next.js web application
-- **`mcp/`** - Model Context Protocol server
+- `apps/desktop`: Tauri macOS shell and managed local runtimes
+- `apps/context-agent`: Hono API, Better Auth, ingestion, jobs, search, generation, GitHub, and MCP
+- `apps/studio`: Next.js canvas workspace
+- `apps/capture-extension`: Chrome Manifest V3 capture extension
+- `packages/db`: Drizzle schema, PostgreSQL/pgvector access, and migrations
 
-## Development Commands
+## Commands
 
-### Root Level (Monorepo)
-- `bun run dev` - Start all applications in development mode
-- `bun run build` - Build all applications
-- `bun run check-types` - Run TypeScript checks across all apps
-- `bun run format-lint` - Format and lint code using Biome
+```bash
+bun run dev
+bun run build
+bun run test
+bun run check-types
+bun run format-lint
+bun run db:generate
+bun run db:migrate
+bun run --cwd apps/studio test:e2e
+bun run --cwd apps/desktop test:resource
+```
 
-### Web Application (`apps/web/`)
-- `bun run dev` - Start Next.js development server
-- `bun run build` - Build Next.js application
-- `bun run lint` - Run Next.js linting
+`bun run build` creates the Apple Silicon app and DMG on macOS. Docker is used only for the development PostgreSQL service; the desktop bundle carries PostgreSQL and pgvector.
 
-## Architecture Overview
+## Architecture
 
-### Core Technology Stack
-- **Runtime**: Next.js (web)
-- **Framework**: Next.js (web)
-- **Language**: TypeScript throughout
-- **Package Manager**: Bun
-- **Monorepo**: Turbo
-- **Authentication**: Better Auth
-- **Monitoring**: Sentry
+- Tenant identity and project roles come only from Better Auth server context.
+- Project roles are `owner`, `editor`, and `viewer`.
+- Source ACLs fail closed and are applied before retrieval or prompt construction.
+- Ingestion runs through the PostgreSQL durable job queue and content-addressed local object storage.
+- Search combines PostgreSQL full-text and pgvector ranks and preserves citations.
+- Canvas layout is separate from durable source, artifact, capture, and prototype content.
+- Design-system versions require a valid `DesignManifestV1`; projects pin one immutable active version.
+- React generation must validate assets, props, variants, tokens, citations, and imports before compilation or publication.
+- GitHub publication uses local `gh` authentication and explicit owner approval.
+- MCP tools enforce OAuth or bearer-token scopes plus current project and source access.
 
-### API Application (Primary Backend)
-The API serves as the core backend with these key features:
+## Local Data
 
-**Key API Routes**
-- `/v3/documents` - CRUD operations for documents/memories
-- `/v3/search` - Semantic search across indexed content
-- `/v3/connections` - External service integrations (Google Drive, Notion, OneDrive)
-- `/v3/settings` - Organization and user settings
-- `/v3/analytics` - Usage analytics and reporting
-- `/api/auth/*` - Authentication endpoints
+The desktop stores workspace data under `~/Library/Application Support/Context Layer`. Credentials and application secrets belong in macOS Keychain. Never commit `.env` files, tokens, generated desktop bundles, local databases, object files, or backups.
 
-### Web Application
-Next.js application providing user interface for:
+## Quality
 
-## Key Libraries & Dependencies
-
-### Shared Dependencies
-- `better-auth` - Authentication system with organization support
-- `drizzle-orm` - Database ORM
-- `zod` - Schema validation
-- `hono` - Web framework (API & MCP)
-- `@sentry/*` - Error monitoring
-- `turbo` - Monorepo build system
-
-### Web-Specific
-- `next` - React framework
-- `@radix-ui/*` - UI components
-- `@tanstack/react-query` - Data fetching
-- `recharts` - Analytics visualization
-
-## Development Workflow
-
-### Content Processing Pipeline
-All content goes through the `IngestContentWorkflow` which handles:
-- Content type detection and extraction
-- AI-powered summarization and automatic tagging
-- Vector embedding generation using Cloudflare AI
-- Chunking for semantic search optimization
-- Space relationship management
-
-### Environment Configuration
-- Uses `wrangler.jsonc` for Cloudflare Workers configuration
-- Supports staging and production environments
-- Requires Cloudflare bindings: Hyperdrive (DB), AI, KV storage, Workflows
-- Cron triggers every 4 hours for connection imports
-
-### Error Handling & Monitoring
-- HTTPException for consistent API error responses
-- Sentry integration with user and organization context
-- Custom logging that filters analytics noise
-
-## Code Quality & Standards
-
-### Linting & Formatting
-- **Biome** used for linting and formatting across the monorepo
-- Run `bun run format-lint` to format and lint all code
-- Configuration in `biome.json` at repository root
-
-### TypeScript
-- Strict TypeScript configuration with `@total-typescript/tsconfig`
-- Type checking with `bun run check-types`
-- Cloudflare Workers type generation with `cf-typegen`
-
-### Database Management
-- Drizzle ORM with schema located in shared packages
-- Database migrations handled through Drizzle Kit
-- Schema types automatically generated and shared
-
-## Security & Best Practices
-
-### Authentication
-- Better Auth handles user authentication and organization management
-- API key authentication for external access
-- Role-based access control within organizations
-
-### Data Handling
-- Content hashing to prevent duplicate processing
-- Secure handling of external service credentials
-- Automatic content type detection and validation
-
-### Deployment
-- Cloudflare Workers for scalable serverless deployment
-- Source map uploads to Sentry for production debugging
-- Environment-specific configuration management
+- Use strict TypeScript and existing Hono, Drizzle, Zod, React, and React Flow patterns.
+- Use Biome for formatting and linting.
+- Keep migrations transactional and preserve existing IDs, revisions, comments, and grants.
+- Add focused tests for authorization, data integrity, parsing, security boundaries, and lifecycle behavior.
+- Keep desktop work bounded: one ingestion job, one model task, and one compilation worker by default.
+- Before release, run unit tests, type checks, Biome CI, migrations, Playwright, builds, secret scanning, DMG verification, and the desktop resource gate.

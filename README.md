@@ -1,231 +1,263 @@
 # Context Layer
 
-Context Layer is a canvas-first workspace for teams that turn product knowledge into grounded product decisions, UX artifacts, and interface prototypes. Knowledge, captures, design-system assets, flows, and generated work live together as a connected graph rather than isolated dashboard records.
+Context Layer is a local-first, canvas-based workspace for turning product knowledge into grounded decisions, UX artifacts, and validated React prototypes. Documents, product captures, design-system assets, flows, requirements, reviews, and generated interfaces live together as a connected project graph.
 
-The current product combines:
+The first release is a standalone Apple Silicon macOS application. Workspace data stays on the Mac. Remote AI and connector services receive data only for an action the user has configured and consented to.
 
-- Organization-scoped knowledge ingestion, semantic search, and cited answers
-- Infinite project canvases with typed links, notes, frames, comments, checkpoints, restoration, and optimistic layout updates
-- Organization sharing plus expiring, revocable, read-only canvas links for external review
-- Product capture from a user-invoked Chrome extension, including a redacted DOM outline, screenshot, and ordered flow links
-- Context-grounded briefs, flows, UX reviews, interface specifications, and sandboxed prototype previews
-- Versioned, manifest-backed design systems with foundations, tokens, components, patterns, and templates
-- Read-only MCP access to organization-scoped knowledge, canvases, and design assets
-- Confluence and Figma synchronization, plus manual file uploads
+## What it does
+
+- Organizes team knowledge on infinite project canvases with typed relationships, frames, comments, mentions, checkpoints, branching, comparison, and restoration.
+- Imports files, URLs, product captures, GitHub, Notion, Google Drive, Slack, Confluence, Figma, and explicitly allowlisted remote MCP resources.
+- Extracts text and provenance from text, Markdown, HTML, JSON, CSV, PDF, DOCX, PPTX, XLSX, images, audio, and video.
+- Combines PostgreSQL full-text and pgvector retrieval, preserves source access rules, and cites the evidence used by answers and artifacts.
+- Records multi-step product flows through a Chrome extension with a local redaction preview before upload.
+- Imports package metadata, browser bundles, CSS, Storybook, read-only Figma libraries and variables, and Code Connect mappings into versioned design manifests.
+- Generates briefs, requirements, flows, state matrices, UX reviews, interface specifications, tests, and multi-file React prototypes.
+- Validates generated React against the project's pinned design-system version before compiling or publishing it.
+- Publishes approved prototypes through the locally authenticated GitHub CLI without copying or storing GitHub credentials.
+- Exposes an OAuth 2.1 and scoped-token Streamable HTTP MCP server for approved knowledge, canvas, design, generation, and publication operations.
 
 ## Architecture
 
-This is a Bun/Turborepo monorepo with four active packages:
+This is a Bun and Turborepo monorepo with five active packages:
 
 | Package | Responsibility |
 | --- | --- |
-| `apps/context-agent` | Hono API, authentication, ingestion, search, connectors, RAG, and ideation endpoints |
-| `apps/studio` | Next.js canvas workspace for knowledge, product artifacts, review, and prototypes |
-| `apps/capture-extension` | Chrome Manifest V3 extension for user-initiated product captures |
-| `packages/db` | Shared Drizzle schema, PostgreSQL access, pgvector support, and migrations |
-
-The main data flow is:
+| `apps/desktop` | Tauri macOS shell, managed local runtimes, lifecycle, backup, restore, and DMG packaging |
+| `apps/context-agent` | Hono API, Better Auth, ingestion, search, connectors, jobs, generation, GitHub publication, and MCP |
+| `apps/studio` | Next.js canvas workspace for knowledge, product reasoning, review, and prototypes |
+| `apps/capture-extension` | Chrome Manifest V3 product capture and local redaction preview |
+| `packages/db` | Drizzle schema, PostgreSQL and pgvector access, and transactional migrations |
 
 ```text
-uploads / connectors / product capture / design manifests
+files / URLs / connectors / capture / design sources
                          |
                          v
-       extract -> chunk -> filter -> embed -> cite
+       durable jobs -> extract -> provenance -> chunk
                          |
                          v
-      PostgreSQL + pgvector + immutable artifact revisions
+        PostgreSQL full-text + pgvector + local objects
                          |
                          v
-                project canvas artifact graph
+             ACL-filtered project canvas graph
                          |
                          v
-      briefs / flows / UX reviews / specs / prototype previews
+      cited reasoning -> validated UI plan -> React files
+                         |
+                         v
+          sandboxed preview -> explicit GitHub approval
 ```
 
-Embeddings use NVIDIA NIM's `nvidia/nv-embedqa-e5-v5` model. Chat, concept generation, and UI generation use OpenRouter through an OpenAI-compatible client.
+## macOS application
 
-## Local setup
+### Install
 
-### Requirements
+The packaging target is Apple Silicon macOS 13 or newer. Build artifacts are written to:
 
-- Bun `1.3.6`
-- Node.js `20` or newer
-- Docker, for the local PostgreSQL/pgvector database
-- API credentials for embeddings and model generation
+```text
+apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/
+```
 
-### Install dependencies
+Open the DMG, drag Context Layer to Applications, and launch it. The bundle includes PostgreSQL 17 with pgvector, the API, the production Studio runtime, the prototype compiler, and the media extractor. Docker, Node.js, Bun, and a separately installed database are not required at runtime.
+
+Unsigned development builds are ad-hoc signed and may require approval in macOS Privacy & Security. Public distribution requires an Apple Developer ID signature and notarization.
+
+### Local data
+
+Context Layer stores its runtime data under:
+
+```text
+~/Library/Application Support/Context Layer
+```
+
+| Directory | Contents |
+| --- | --- |
+| `database/` | Local PostgreSQL cluster and vector indexes |
+| `objects/` | Content-addressed originals and derived media |
+| `backups/` | Automatic database backups created before startup migrations |
+| `logs/` | PostgreSQL, API, and Studio logs |
+| `run/` | Local database socket files |
+
+Connector credentials and application secrets are stored in macOS Keychain, not in the data directory. Removing the application does not delete workspace data.
+
+To inspect the folder from Terminal:
 
 ```bash
-bun install
+open "$HOME/Library/Application Support/Context Layer"
 ```
 
-### Start PostgreSQL
+### Backup and restore
 
-```bash
-docker compose up -d db
-```
+The desktop runtime creates a timestamped PostgreSQL dump before applying migrations to an existing database. To restore one of those dumps:
 
-The database is exposed on port `5433` and includes the pgvector extension.
+1. Quit Context Layer.
+2. Write the absolute path of a `.dump` file from the `backups` directory to `~/Library/Application Support/Context Layer/restore-request`.
+3. Relaunch Context Layer.
 
-### Configure the API
+The runtime accepts restore files only from its own backup directory, restores before migrations, and removes the request marker after success. Keep a separate copy of the entire Context Layer data directory for device-level backup.
 
-```bash
-cp apps/context-agent/.env.example apps/context-agent/.env
-```
+### Resource policy
 
-Set at least these values in `apps/context-agent/.env`:
+The desktop uses local-only ports and sockets, caps PostgreSQL memory, runs one durable ingestion job at a time, disables automatic connector polling by default, limits model concurrency to one, and starts compilation workers only on demand. Quitting the application terminates the API, Studio, PostgreSQL, compiler, media helpers, and their process groups.
 
-```dotenv
-DATABASE_URL=postgres://postgres:postgres@localhost:5433/contextlayer
-BETTER_AUTH_SECRET=replace-with-a-long-random-secret
-BETTER_AUTH_URL=http://localhost:8787
-STUDIO_URL=http://localhost:3000
-CONNECTION_ENCRYPTION_KEY=base64-encoded-32-byte-secret
-NVIDIA_API_KEY=your-nvidia-key
-OPENROUTER_API_KEY=your-openrouter-key
-```
+The release gate on an 8 GB Apple Silicon Mac is under 2% settled idle CPU, under 750 MB total idle memory, and no surviving child processes after quit.
 
-Confluence and Figma OAuth values are required only when using those connectors. Their callback URLs are listed in the example environment file.
+## Privacy and consent
 
-### Configure Studio
+Workspace records, object files, search indexes, generated files, revisions, and backups are local by default. Context Layer shows the selected provider and data boundary before sending content to a remote service for embeddings, image description, transcription, or generation. Consent is recorded per organization, provider, capability, and policy version and can be revoked.
 
-```bash
-cp apps/studio/.env.example apps/studio/.env.local
-```
+The local runtime binds Studio, the API, and PostgreSQL to `127.0.0.1`. External connector principals must map to a local user, team, or organization grant; unmapped access fails closed. Project roles are:
 
-For local development, the default API URL is `http://localhost:8787`.
+- `owner`: membership, settings, design pinning, approval, and publication
+- `editor`: canvas and artifact changes, imports, and generation
+- `viewer`: reading and comments
 
-### Apply database migrations
+The capture extension never collects cookies, local storage, authorization headers, password values, hidden inputs, arbitrary scripts, or inaccessible cross-origin frame contents. Form values are masked by default and the capture is shown locally for redaction before upload.
 
-```bash
-bun run db:migrate
-```
+## Knowledge and connectors
 
-### Start development
+Supported local inputs are plain text, Markdown, HTML, JSON, CSV, PDF, DOCX, PPTX, XLSX, common images, audio, and video. Extraction preserves the applicable page, slide, sheet, URL, timestamp, frame, connector, and source-revision provenance. HTML scripts and styles are ignored. Media processing is bounded and runs through the bundled macOS helper; remote descriptions or transcripts require provider consent.
 
-```bash
-bun run dev
-```
+Connectors support initial and incremental synchronization, cursor persistence, deletions, cancellation, retries, rate limits, expired credentials, and revoked access:
 
-Studio runs on the Next.js development port and the API runs on port `8787`.
+- GitHub repositories
+- Notion workspaces
+- Google Drive
+- Slack
+- Confluence
+- Figma files and read-only libraries
+- Allowlisted Streamable HTTP MCP servers
+- Web URLs
 
-### Resource defaults
+Connector sync is manual by default in the desktop release. Remote MCP must use HTTP or HTTPS, match `OUTBOUND_MCP_ALLOWLIST`, remain on its original allowlisted origin, and cannot redirect to or resolve as a private-network address.
 
-Local development does not poll external connectors unless `CONNECTOR_POLLING=true` is set. Production polling is serialized, so a slow sync cannot overlap the next interval. Model work is capped at two concurrent requests per API process by default (`MODEL_CONCURRENCY`), preventing bursts of generation from accumulating locally. The Playwright suite uses one worker, owns its temporary API and Studio servers, and disables tracing outside CI to keep laptop CPU, memory, and disk use bounded.
+Search uses structure-aware chunks and reciprocal-rank fusion across PostgreSQL full-text and pgvector rankings. Every result is filtered through organization, team, user, project, and source grants before it reaches a prompt. Answers and generated artifacts require citations; selecting one focuses its source node on the canvas.
 
 ## Canvas workflow
 
-Create a project from Studio, then open it to work on its canvas. The board supports knowledge, capture, design-asset, note, frame, and generated-artifact nodes. Connect nodes with typed relationships (`derived from`, `supports`, `contradicts`, `flows to`, `implements`, or `references`), select relevant nodes as AI context, and generate a brief, flow, review, specification, or prototype from the composer. Interface specifications retain a structured `UiPlan` and reject design-system components, props, variants, and tokens that are not in the pinned manifest. Generating a prototype with a selected validated interface specification produces TypeScript source with manifest-approved imports; otherwise it remains a sandboxed HTML preview. The default Auto mode routes common prompt intents without an extra model request; explicit modes remain available. Generated artifacts list their evidence; selecting a citation centers its source node when it is on the canvas.
+Each project starts with a default infinite canvas. Nodes reference durable sources and artifacts while keeping position and presentation separate from content. Supported artifacts include briefs, requirements, user flows, state matrices, UX reviews, interface specifications, test cases, and React prototypes. Edges can be `derived_from`, `supports`, `contradicts`, `flows_to`, `implements`, or `references`.
 
-Files uploaded from a canvas are immediately placed on the board as knowledge nodes. The design-system drawer lists the project-pinned system and can add approved assets as contextual nodes. Generated artifacts can be edited from the selected-artifact panel; every save creates an immutable version entry, and an earlier version can be viewed beside the current one for review. Any revision can also become a separate branch on the canvas while retaining its parent-revision provenance. Canvas history records checkpoints before generation, capture import, context placement, and destructive changes. Restoring a checkpoint brings back the nodes, edges, and comments captured at that point; Context Layer snapshots the pre-restore state first, so restoration itself is recoverable.
+Edits autosave with optimistic object versions. Changes to different objects merge independently; conflicting changes to the same object return a visible conflict. Context Layer checkpoints before imports, generation, regeneration, deletion, and restoration. Artifact revisions are immutable and retain authorship, citations, generation inputs, design-system version, and parent revision.
 
-### Share and review
+Projects support member roles, organization sharing, node comments, mentions, resolution, and expiring revocable read-only links. Live cursors and networked multiplayer are intentionally deferred.
 
-Project owners can choose personal, team-scoped, or organization-wide access from the canvas Share panel. They can also issue a read-only review link that expires after 30 days by default. The raw link token is shown once, stored only as a SHA-256 digest, and can be revoked from the same panel. Shared canvases do not expose editing, generation, comments, capture tokens, source drawers, or history controls.
-
-### Product capture extension
+## Product capture
 
 Build the extension and load `apps/capture-extension/dist` as an unpacked Chrome extension:
 
 ```bash
-bun --cwd apps/capture-extension run build
+bun run --cwd apps/capture-extension build
 ```
 
-In a project canvas, open the context drawer and generate a capture token. Enter the API URL, project ID, and token in the extension options. A click on the extension action captures only the active tab. It excludes form values, password fields, hidden inputs, cookies, local storage, authorization headers, and arbitrary page JavaScript; the server applies a second redaction pass before persisting the capture.
+Create a short-lived capture token from a project, then enter the local API URL, project ID, and token in the extension options. Start a flow to capture ordered steps. Each accepted step stores its sanitized outline and screenshot through encrypted local object storage, creates a canvas node, indexes safe visible text, and links the sequence with `flows_to` edges. Processing state and failures appear on the node.
 
-The same drawer shows the current Figma and Confluence connection status and starts their organization-scoped OAuth flow. Owners and admins can register a read-only Figma file URL for the next sync. It never starts a sync automatically.
+## Design-system intelligence
 
-### Design-system manifests
+A design-system version cannot be activated until it has a valid `DesignManifestV1`. Imports create drafts and preserve source and validation provenance. Owners resolve validation issues and merge conflicts before activation; every project pins exactly one immutable active version.
 
-Design-system owners create a system from Studio's `/design-systems` page, submit a validated `DesignManifestV1`, activate a version, and pin that version to a project. Project owners control the pinned version so collaborators cannot silently change shared generation context. A manifest records the package, preview entry, CSS, foundations, tokens, primitives, components, patterns, templates, props, variants, examples, accessibility guidance, and source mappings. The first Studio workflow intentionally uses a JSON manifest editor backed by server validation; automated Storybook/package/Figma manifest import remains follow-up work.
+The manifest can include package imports, browser and CSS entries, foundations, tokens, primitives, components, patterns, templates, props, variants, slots, examples, accessibility guidance, composition constraints, and source mappings. Importers support package metadata and browser-compatible archives, Storybook, read-only Figma libraries and variables, and Code Connect mappings. Package inspection blocks install scripts, path traversal, executable macros, unbounded archive expansion, arbitrary network access, and known unbounded execution patterns.
 
-### MCP
+Design assets can be searched and placed on the canvas as context. The canvas is an artifact graph, not a vector editor or low-level component layout tool.
 
-Create a scoped MCP token with `POST /api/mcp/tokens`, then connect a Streamable HTTP client to `/mcp` with `Authorization: Bearer <token>`. The endpoint currently provides read-only tools for knowledge search, project canvas access, design assets, and source documents. Tokens are organization and user scoped and re-check current membership on every call.
+## Reasoning and React generation
 
-### GitHub delivery
+The composer routes prompts to research synthesis, product briefs, requirements, flow mapping, state matrices, edge-case review, interface specifications, tests, or React generation. Before interface generation, the reasoning layer covers permissions, loading, empty, validation, error, retry, quota, and recovery states.
 
-Project owners can configure a target repository, base branch, app root, and allowed paths in the canvas context drawer. This records the publication boundary only; Context Layer does not yet store GitHub credentials, push generated files, or open pull requests.
+An interface specification contains a structured `UiPlan` with approved asset IDs, imports, props, variants, tokens, navigation, screen states, citations, file structure, target framework, and pinned manifest version. Context Layer rejects invented assets or missing citations before generating multi-file React and TypeScript for Vite or Next.js.
 
-## Common commands
+Compilation runs in one short-lived worker. Preview output is served in a sandboxed cross-origin iframe without same-origin access, storage, top-level navigation, or network access by default. Compilation or manifest validation failures block approval and publication.
+
+## GitHub publication
+
+Publication uses the locally installed and authenticated `gh` CLI and never reads or stores its credentials. A project owner configures the repository, base branch, framework, app root, package manager, allowed paths, and design-system import. Context Layer validates repository access and file boundaries before showing a publication preview.
+
+Only an explicit in-product owner approval starts publication. Approved files are written to a `contextlayer/<project>-<artifact>` branch and a pull request is opened with validation results, citations, artifact references, and design-system provenance. Every attempt has a durable publication audit.
+
+## MCP
+
+The API serves Streamable HTTP MCP at `/mcp` and publishes OAuth 2.1 discovery metadata under `/.well-known/`. Clients can use Better Auth OAuth access tokens or revocable local bearer tokens created through `/api/mcp/tokens`.
+
+Available scopes are enforced per tool:
+
+- `knowledge:read`
+- `canvas:read`
+- `design:read`
+- `artifacts:write`
+- `generation:write`
+- `publication:write`
+
+Tools cover knowledge search, project canvases, artifacts, design assets, validated UI planning and React generation, and approval-gated publication. Project roles and source ACLs are rechecked on every operation; a token scope never grants a role the user does not already hold.
+
+## Development
+
+### Requirements
+
+- macOS for the desktop and DMG target
+- Bun `1.3.6`
+- Node.js 20 or newer for development tooling
+- PostgreSQL with pgvector, or Docker for the development database only
+- Rust and Xcode command-line tools for the Tauri bundle
+
+Install dependencies and configure development services:
 
 ```bash
-bun run dev          # Start the API and Studio
-bun run build        # Build all active packages
-bun run test         # Run fast access-policy and capture-redaction tests
-bun run check-types  # Type-check the monorepo
-bun run format-lint  # Format and lint with Biome
-bun run db:generate  # Generate a Drizzle migration
-bun run db:migrate   # Apply database migrations
+bun install
+docker compose up -d db
+cp apps/context-agent/.env.example apps/context-agent/.env
+cp apps/studio/.env.example apps/studio/.env.local
+bun run db:migrate
+bun run dev
 ```
 
-Run the browser canvas workflow with:
+The development API defaults to `http://localhost:8787`; Studio defaults to `http://localhost:3000`. Configure only the remote providers you intend to use. Provider consent is still required in the product before content is sent.
+
+### Commands
 
 ```bash
-bunx playwright install chromium
-bun --cwd apps/studio run test:e2e
+bun run dev                    # Start development applications
+bun run build                  # Build all packages, including the DMG on macOS
+bun run test                   # Run package unit tests
+bun run check-types            # Type-check the monorepo
+bun run format-lint            # Format and lint with Biome
+bun run db:generate            # Generate a Drizzle migration
+bun run db:migrate             # Back up and apply migrations
+bun run --cwd apps/studio test:e2e # Run the browser workflow
 ```
 
-The Playwright suite starts isolated local API and Studio servers, creates a disposable account and organization, then creates and comments on a canvas project, restores a deleted node from history, and validates anonymous read-only sharing plus revocation.
+The Playwright workflow creates an isolated account and organization, imports and indexes a redacted product capture, verifies encrypted screenshot access and search, exercises comments and history restoration, and checks read-only sharing and revocation.
 
-## Product workflows
+### Development environment
 
-### Ask the knowledge base
+`apps/context-agent/.env.example` documents database, Better Auth, encryption, model, connector, and OAuth values. At minimum, development requires `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `STUDIO_URL`, and `CONNECTION_ENCRYPTION_KEY`. NVIDIA and OpenRouter credentials are required only for their corresponding remote model operations.
 
-Studio sends a question to the API. The API searches organization-visible, team-visible, and personal memories, then generates an answer with the retrieved documents as sources.
-
-### Add knowledge
-
-Knowledge can enter through:
-
-- Manual file uploads for supported text and PDF files
-- Confluence OAuth and periodic page synchronization
-- Figma OAuth and watched-file synchronization
-
-All sources use the same ingestion pipeline: extraction, chunking, signal filtering, embedding, and pgvector storage.
-
-### Develop product ideas
-
-Projects provide a shared workspace for product exploration. A prompt can generate either:
-
-- A concept brief with a summary, key flows, and open questions
-- A single-file HTML/Tailwind UI mockup rendered in Studio
-
-Generated ideas retain references to the knowledge documents used for grounding, and teammates can comment on them.
+The production desktop creates its own secrets in macOS Keychain and supplies its bundled runtime paths automatically. Do not place credentials in committed files.
 
 ## API surface
 
-The API is served by `apps/context-agent`:
+- `/health` and `/health/desktop` - process and desktop runtime health
+- `/api/auth/*` - Better Auth and OAuth provider endpoints
+- `/api/memories` and `/api/memories/search` - ingestion and ACL-filtered retrieval
+- `/api/ask` - cited knowledge answers
+- `/api/connections/*` - connector setup, status, synchronization, and cursors
+- `/api/jobs/*` - durable job status, progress, retry, and cancellation
+- `/api/privacy/*` - provider policy and consent
+- `/api/projects/*` and `/api/canvases/*` - memberships, sharing, nodes, edges, comments, artifacts, and history
+- `/api/design-systems/*` - manifests, imports, validation, activation, and project pinning
+- `/api/capture/*` - capture token and redacted flow ingestion
+- `/api/publication/*` - validation preview, explicit approval, and publication audits
+- `/mcp` - authenticated Streamable HTTP MCP endpoint
 
-- `/health` - Health check
-- `/api/auth/*` - Better Auth endpoints
-- `/api/memories` - Document ingestion and file uploads
-- `/api/memories/search` - Semantic memory search
-- `/api/ask` - Context-grounded questions and answers
-- `/api/connections/*` - Confluence and Figma OAuth, status, watching, and sync
-- `/api/projects/*` - Project creation, visibility, canvases, capture tokens, design pinning, and generation
-- `/api/canvases/*` - Canvas nodes, edges, comments, layout, and history
-- `/api/shared/:token` - Scoped, anonymous read-only canvas access through an active share link
-- `/api/design-systems/*` - Manifest-backed design system versions and activation
-- `/api/capture/import` - Capture-extension import using a short-lived project token
-- `/mcp` - Authenticated Streamable HTTP MCP endpoint
-
-The API derives tenant identity and team membership from Better Auth sessions or verified MCP tokens. Client-supplied organization and user identity are not trusted by the core API routes.
+Tenant, team, user, and role identity come from authenticated server context. Core APIs do not trust client-supplied identity.
 
 ## Current boundaries
 
-This repository is an early product baseline. The current implementation intentionally keeps a few MVP constraints:
-
-- Confluence and Figma connections are organization-scoped; their OAuth tokens are encrypted at rest when `CONNECTION_ENCRYPTION_KEY` is configured.
-- Connector updates use periodic polling rather than a durable worker queue or webhooks.
-- Text chunking is fixed-size rather than fully structure-aware, and broader media ingestion is not implemented yet.
-- Prototypes are self-contained HTML previews in cross-origin-style sandboxed iframes; manifest-validated React file generation and GitHub PR publication remain next-stage work.
-- Design-system creation is API-first. Storybook/package bundle extraction, Code Connect import, and Figma library import are not automated yet.
-- MCP uses scoped bearer tokens today. OAuth 2.1 discovery, remote-MCP consumption, and write tools are deferred.
-- Integration, capture-redaction, concurrency, and tenant-isolation test coverage is still being expanded.
-
-Security, authorization, connector reliability, and data-isolation improvements are the next audit priorities.
+- The first release is single-device and local-first. Cloud sync, networked multiplayer, and live cursors are deferred.
+- Figma is an input only; editable Figma export is deferred.
+- The canvas organizes evidence and generated artifacts but does not provide vector drawing or low-level component editing.
+- Remote AI remains optional but local embedding and generation models are not bundled in this release.
+- Connector synchronization is manual by default; webhooks and continuous background sync are deferred.
+- The generated DMG must be signed and notarized with Apple Developer credentials before public distribution. Development builds are ad-hoc signed for local testing.
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE).
+Context Layer is licensed under the MIT License. See [LICENSE](LICENSE).

@@ -1,4 +1,5 @@
 import { drizzle } from "drizzle-orm/postgres-js"
+import { migrate } from "drizzle-orm/postgres-js/migrator"
 import postgres from "postgres"
 import * as schema from "./schema"
 
@@ -16,5 +17,9 @@ const client = postgres(process.env.DATABASE_URL, {
 	max_lifetime: 60 * 30,
 })
 export const db = drizzle(client, { schema })
+
+export async function migrateDatabase(migrationsFolder: string) {
+	await migrate(db, { migrationsFolder })
+}
 
 export * from "./schema"

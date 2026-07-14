@@ -1,11 +1,12 @@
 "use client"
 
 import Link from "next/link"
+import { FileArchive, Library, PenTool } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { apiGet, apiSend } from "@/lib/api"
+import { API_URL, apiGet, apiSend } from "@/lib/api"
 import { useCaller } from "@/lib/use-caller"
 
 interface DesignSystem {
@@ -18,6 +19,15 @@ interface DesignSystemVersion {
 	id: string
 	version: string
 	status: "draft" | "active" | "archived"
+	createdAt: string
+}
+
+interface DesignImportRun {
+	id: string
+	sourceType: "package" | "storybook" | "figma"
+	status: "queued" | "running" | "succeeded" | "failed" | "cancelled"
+	candidateManifest: Record<string, unknown> | null
+	issues: { message?: string; severity?: string }[]
 	createdAt: string
 }
 
@@ -52,6 +62,14 @@ export default function DesignSystemsPage() {
 	const [description, setDescription] = useState("")
 	const [manifest, setManifest] = useState("")
 	const [bundleUrl, setBundleUrl] = useState("")
+	const [imports, setImports] = useState<DesignImportRun[]>([])
+	const [importMode, setImportMode] =
+		useState<DesignImportRun["sourceType"]>("package")
+	const [importUrl, setImportUrl] = useState("")
+	const [packageFile, setPackageFile] = useState<File | null>(null)
+	const [reviewingImportId, setReviewingImportId] = useState<string | null>(
+		null,
+	)
 	const [busy, setBusy] = useState(false)
 	const [error, setError] = useState<string | null>(null)
 
@@ -66,11 +84,21 @@ export default function DesignSystemsPage() {
 	}, [])
 
 	const loadVersions = useCallback(async () => {
-		if (!selectedId) return setVersions([])
-		const data = await apiGet<{ versions: DesignSystemVersion[] }>(
-			`/api/design-systems/${selectedId}`,
-		)
-		setVersions(data.versions)
+		if (!selectedId) {
+			setVersions([])
+			setImports([])
+			return
+		}
+		const [versionData, importData] = await Promise.all([
+			apiGet<{ versions: DesignSystemVersion[] }>(
+				`/api/design-systems/${selectedId}`,
+			),
+			apiGet<{ imports: DesignImportRun[] }>(
+				`/api/design-systems/${selectedId}/imports`,
+			),
+		])
+		setVersions(versionData.versions)
+		setImports(importData.imports)
 	}, [selectedId])
 
 	useEffect(() => {
@@ -90,11 +118,26 @@ export default function DesignSystemsPage() {
 		)
 	}, [loadVersions])
 
+	useEffect(() => {
+		if (
+			!imports.some(
+				(run) => run.status === "queued" || run.status === "running",
+			)
+		)
+			return
+		const timer = window.setInterval(
+			() => loadVersions().catch(() => undefined),
+			2_500,
+		)
+		return () => window.clearInterval(timer)
+	}, [imports, loadVersions])
+
 	function selectSystem(id: string) {
 		setSelectedId(id)
 		const system = systems.find((item) => item.id === id)
 		if (system) setManifest(manifestTemplate(system.name))
 		setError(null)
+		setReviewingImportId(null)
 	}
 
 	async function createSystem(event: React.FormEvent) {
@@ -131,10 +174,22 @@ export default function DesignSystemsPage() {
 			if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
 				throw new Error("Manifest must be a JSON object")
 			}
-			await apiSend("POST", `/api/design-systems/${selected.id}/versions`, {
-				manifest: parsed as Record<string, unknown>,
-				bundleUrl: bundleUrl || undefined,
-			})
+			if (reviewingImportId) {
+				await apiSend("PATCH", `/api/design-imports/${reviewingImportId}`, {
+					manifest: parsed as Record<string, unknown>,
+				})
+				await apiSend(
+					"POST",
+					`/api/design-imports/${reviewingImportId}/create-version`,
+					{},
+				)
+				setReviewingImportId(null)
+			} else {
+				await apiSend("POST", `/api/design-systems/${selected.id}/versions`, {
+					manifest: parsed as Record<string, unknown>,
+					bundleUrl: bundleUrl || undefined,
+				})
+			}
 			setBundleUrl("")
 			await loadVersions()
 		} catch (cause) {
@@ -144,6 +199,50 @@ export default function DesignSystemsPage() {
 		} finally {
 			setBusy(false)
 		}
+	}
+
+	async function startImport(event: React.FormEvent) {
+		event.preventDefault()
+		if (!selected) return
+		setBusy(true)
+		setError(null)
+		try {
+			if (importMode === "package") {
+				if (!packageFile) throw new Error("Choose a package archive")
+				const form = new FormData()
+				form.append("file", packageFile)
+				const response = await fetch(
+					`${API_URL}/api/design-systems/${selected.id}/imports/package`,
+					{ method: "POST", credentials: "include", body: form },
+				)
+				if (!response.ok) {
+					const body = await response.json().catch(() => null)
+					throw new Error(body?.error ?? `Import failed (${response.status})`)
+				}
+				setPackageFile(null)
+			} else {
+				await apiSend(
+					"POST",
+					`/api/design-systems/${selected.id}/imports`,
+					importMode === "storybook"
+						? { sourceType: "storybook", url: importUrl }
+						: { sourceType: "figma", fileUrl: importUrl },
+				)
+				setImportUrl("")
+			}
+			await loadVersions()
+		} catch (cause) {
+			setError(cause instanceof Error ? cause.message : "Import failed")
+		} finally {
+			setBusy(false)
+		}
+	}
+
+	function reviewImport(run: DesignImportRun) {
+		if (!run.candidateManifest) return
+		setManifest(JSON.stringify(run.candidateManifest, null, 2))
+		setReviewingImportId(run.id)
+		setError(null)
 	}
 
 	async function activateVersion(id: string) {
@@ -238,6 +337,84 @@ export default function DesignSystemsPage() {
 									Submit a version, then activate it for project use.
 								</p>
 							</div>
+							<form
+								onSubmit={startImport}
+								className="mb-6 space-y-2 border-b border-border pb-6"
+							>
+								<fieldset className="grid grid-cols-3 gap-1">
+									<legend className="sr-only">Import source</legend>
+									{(
+										[
+											["package", "Package", FileArchive],
+											["storybook", "Storybook", Library],
+											["figma", "Figma", PenTool],
+										] as const
+									).map(([value, label, Icon]) => (
+										<Button
+											key={value}
+											type="button"
+											size="sm"
+											variant={importMode === value ? "secondary" : "ghost"}
+											onClick={() => setImportMode(value)}
+										>
+											<Icon /> {label}
+										</Button>
+									))}
+								</fieldset>
+								{importMode === "package" ? (
+									<Input
+										type="file"
+										accept=".zip,.tgz,.gz,application/zip,application/gzip"
+										onChange={(event) =>
+											setPackageFile(event.target.files?.[0] ?? null)
+										}
+										required
+									/>
+								) : (
+									<Input
+										type="url"
+										value={importUrl}
+										onChange={(event) => setImportUrl(event.target.value)}
+										placeholder={
+											importMode === "storybook"
+												? "Storybook URL"
+												: "Figma library URL"
+										}
+										required
+									/>
+								)}
+								<Button
+									type="submit"
+									size="sm"
+									variant="outline"
+									disabled={busy}
+								>
+									Import draft
+								</Button>
+								{imports.map((run) => (
+									<div
+										key={run.id}
+										className="flex items-center justify-between gap-2 border-t border-border/70 pt-2 text-xs"
+									>
+										<span className="min-w-0 truncate capitalize text-muted-foreground">
+											{run.sourceType} · {run.status}
+											{run.issues.length > 0
+												? ` · ${run.issues.length} issues`
+												: ""}
+										</span>
+										{run.status === "succeeded" && run.candidateManifest && (
+											<Button
+												type="button"
+												size="xs"
+												variant="ghost"
+												onClick={() => reviewImport(run)}
+											>
+												Review
+											</Button>
+										)}
+									</div>
+								))}
+							</form>
 							<form onSubmit={createVersion} className="space-y-3">
 								<Textarea
 									aria-label="Design manifest JSON"
@@ -254,7 +431,9 @@ export default function DesignSystemsPage() {
 									onChange={(event) => setBundleUrl(event.target.value)}
 								/>
 								<Button type="submit" disabled={busy || !manifest}>
-									Validate and create version
+									{reviewingImportId
+										? "Create reviewed version"
+										: "Validate and create version"}
 								</Button>
 							</form>
 

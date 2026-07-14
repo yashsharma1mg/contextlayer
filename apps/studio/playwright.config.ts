@@ -19,7 +19,7 @@ export default defineConfig({
 	},
 	webServer: [
 		{
-			command: `cd ../context-agent && PORT=8789 STUDIO_URL=${studioUrl} bun run dev`,
+			command: `cd ../context-agent && PORT=8789 BETTER_AUTH_URL=${apiUrl} STUDIO_URL=${studioUrl} CONNECTION_ENCRYPTION_KEY=context-layer-e2e-encryption-key CONTEXT_LAYER_DATA_DIR=/tmp/context-layer-playwright bun run dev`,
 			url: `${apiUrl}/health`,
 			reuseExistingServer: false,
 		},

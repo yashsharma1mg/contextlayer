@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Context Layer</title>
+		<style>
+			:root { color-scheme: light dark; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+			body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f5f6f7; color: #1d2025; }
+			main { width: min(420px, calc(100vw - 48px)); }
+			h1 { margin: 0 0 10px; font-size: 24px; letter-spacing: 0; }
+			p { margin: 0; color: #656b74; line-height: 1.5; }
+			progress { width: 100%; margin-top: 24px; accent-color: #2864dc; }
+			#error { display: none; margin-top: 18px; color: #a12b2b; white-space: pre-wrap; }
+			@media (prefers-color-scheme: dark) { body { background: #15171a; color: #f4f5f6; } p { color: #a7acb4; } }
+		</style>
+	</head>
+	<body>
+		<main>
+			<h1>Context Layer</h1>
+			<p id="status">Starting your local workspace...</p>
+			<progress></progress>
+			<p id="error"></p>
+		</main>
+		<script>
+			const target = "http://127.0.0.1:31420"
+			const started = Date.now()
+			async function waitForStudio() {
+				try {
+					await fetch(`${target}/login`, { mode: "no-cors", cache: "no-store" })
+					location.replace(target)
+				} catch {
+					if (Date.now() - started > 90000) {
+						document.querySelector("progress").style.display = "none"
+						document.querySelector("#status").textContent = "The local workspace could not start."
+						const output = document.querySelector("#error")
+						output.style.display = "block"
+						output.textContent = "Quit and reopen Context Layer. Startup logs are stored in the application data directory."
+						return
+					}
+					setTimeout(waitForStudio, 750)
+				}
+			}
+			waitForStudio()
+		</script>
+	</body>
+</html>

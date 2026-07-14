@@ -12,10 +12,20 @@ const SCOPES = [
 ].join(" ")
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-	const res = await fetch(url, init)
+	const res = await fetch(url, {
+		...init,
+		signal: init?.signal
+			? AbortSignal.any([init.signal, AbortSignal.timeout(30_000)])
+			: AbortSignal.timeout(30_000),
+	})
 	if (!res.ok) {
-		throw new Error(
-			`Confluence request failed (${url}): ${res.status} ${await res.text()}`,
+		const retryAfter = Number(res.headers.get("retry-after") ?? "") || undefined
+		throw new JobExecutionError(
+			`Confluence request failed (${url}): ${res.status} ${(await res.text()).slice(0, 1_000)}`,
+			{
+				retryable: res.status === 429 || res.status >= 500,
+				retryAfterSeconds: retryAfter,
+			},
 		)
 	}
 	return res.json() as Promise<T>
@@ -100,20 +110,30 @@ interface PaginatedResponse<T> {
 export async function listGlobalSpaces(
 	cloudId: string,
 	accessToken: string,
+	signal?: AbortSignal,
 ): Promise<ConfluenceSpace[]> {
 	const spaces: ConfluenceSpace[] = []
 	let url: string | undefined =
 		`${apiBase(cloudId)}/wiki/api/v2/spaces?type=global&status=current&limit=100`
-	while (url) {
+	for (let page = 0; url && page < 50; page += 1) {
 		const data: PaginatedResponse<ConfluenceSpace> = await fetchJson(url, {
 			headers: authHeader(accessToken),
+			signal,
 		})
 		spaces.push(
 			...data.results.map((s) => ({ id: s.id, key: s.key, name: s.name })),
 		)
 		url = data._links?.next
-			? `https://api.atlassian.com${data._links.next}`
+			? new URL(data._links.next, "https://api.atlassian.com").toString()
 			: undefined
+		if (url && page === 49) {
+			throw new JobExecutionError(
+				"Confluence space listing exceeded 5,000 spaces",
+				{
+					retryable: false,
+				},
+			)
+		}
 	}
 	return spaces
 }
@@ -146,11 +166,12 @@ const fetchPage = async (
 	cloudId: string,
 	accessToken: string,
 	pageId: string,
+	signal?: AbortSignal,
 ) =>
 	toConfluencePage(
 		await fetchJson<RawPage>(
 			`${apiBase(cloudId)}/wiki/api/v2/pages/${pageId}?body-format=atlas_doc_format`,
-			{ headers: authHeader(accessToken) },
+			{ headers: authHeader(accessToken), signal },
 		),
 	)
 
@@ -159,18 +180,25 @@ export async function listAllPages(
 	cloudId: string,
 	accessToken: string,
 	spaceId: string,
+	signal?: AbortSignal,
 ): Promise<ConfluencePage[]> {
 	const pages: ConfluencePage[] = []
 	let url: string | undefined =
 		`${apiBase(cloudId)}/wiki/api/v2/spaces/${spaceId}/pages?status=current&limit=100&body-format=atlas_doc_format`
-	while (url) {
+	for (let page = 0; url && page < 100; page += 1) {
 		const data: PaginatedResponse<RawPage> = await fetchJson(url, {
 			headers: authHeader(accessToken),
+			signal,
 		})
 		pages.push(...data.results.map(toConfluencePage))
 		url = data._links?.next
-			? `https://api.atlassian.com${data._links.next}`
+			? new URL(data._links.next, "https://api.atlassian.com").toString()
 			: undefined
+		if (url && page === 99) {
+			throw new JobExecutionError("Confluence space exceeded 10,000 pages", {
+				retryable: false,
+			})
+		}
 	}
 	return pages
 }
@@ -185,19 +213,36 @@ export async function findPagesUpdatedSince(
 	accessToken: string,
 	spaceKey: string,
 	since: Date,
+	signal?: AbortSignal,
 ): Promise<ConfluencePage[]> {
 	const cqlDate = since.toISOString().slice(0, 16).replace("T", " ")
 	const cql = `space = "${spaceKey}" and type = page and lastmodified > "${cqlDate}"`
-	const url = `${apiBase(cloudId)}/wiki/rest/api/search?cql=${encodeURIComponent(cql)}&limit=100`
-	const data = await fetchJson<{ results: { content: { id: string } }[] }>(
-		url,
-		{
-			headers: authHeader(accessToken),
-		},
-	)
-	return Promise.all(
-		data.results.map((r) => fetchPage(cloudId, accessToken, r.content.id)),
-	)
+	let url: string | undefined =
+		`${apiBase(cloudId)}/wiki/rest/api/search?cql=${encodeURIComponent(cql)}&limit=100`
+	const pageIds: string[] = []
+	for (let page = 0; url && page < 100; page += 1) {
+		const data: {
+			results: { content: { id: string } }[]
+			_links?: { next?: string }
+		} = await fetchJson(url, { headers: authHeader(accessToken), signal })
+		pageIds.push(...data.results.map((result) => result.content.id))
+		url = data._links?.next
+			? new URL(data._links.next, "https://api.atlassian.com").toString()
+			: undefined
+		if (url && page === 99) {
+			throw new JobExecutionError(
+				"Confluence incremental search exceeded 10,000 pages",
+				{
+					retryable: false,
+				},
+			)
+		}
+	}
+	const pages: ConfluencePage[] = []
+	for (const pageId of pageIds) {
+		pages.push(await fetchPage(cloudId, accessToken, pageId, signal))
+	}
+	return pages
 }
 
 /** Flattens Atlassian Document Format JSON into plain text for chunking/embedding. */
@@ -209,3 +254,4 @@ export function adfToText(node: unknown): string {
 	const isBlock = n.type === "paragraph" || n.type?.startsWith("heading")
 	return n.content.map(adfToText).join(isBlock ? "\n" : " ")
 }
+import { JobExecutionError } from "./background-jobs"

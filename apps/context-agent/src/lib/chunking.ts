@@ -1,23 +1,46 @@
 const CHUNK_SIZE = 1200
 const CHUNK_OVERLAP = 150
 
-/**
- * Naive fixed-size chunker with overlap. Good enough for MVP; the plan flags
- * Confluence's ADF (structured JSON) as preferable to HTML-ish storage format
- * specifically so a smarter, structure-aware chunker can replace this later
- * without changing anything downstream (chunks are just `content: string`).
- */
 export function chunkText(text: string): string[] {
-	const clean = text.trim()
-	if (clean.length <= CHUNK_SIZE) return clean.length ? [clean] : []
+	const blocks = text
+		.replace(/\r\n/g, "\n")
+		.split(/\n{2,}|(?=^#{1,6}\s)|(?=^[-*]\s)/m)
+		.map((block) => block.trim())
+		.filter(Boolean)
+	if (!blocks.length) return []
 
 	const chunks: string[] = []
-	let start = 0
-	while (start < clean.length) {
-		const end = Math.min(start + CHUNK_SIZE, clean.length)
-		chunks.push(clean.slice(start, end))
-		if (end === clean.length) break
-		start = end - CHUNK_OVERLAP
+	let current = ""
+	const flush = () => {
+		if (!current) return
+		chunks.push(current)
+		current = current.slice(-CHUNK_OVERLAP).trim()
 	}
-	return chunks
+	for (const block of blocks) {
+		if (block.length > CHUNK_SIZE) {
+			if (current) flush()
+			let start = 0
+			while (start < block.length) {
+				const target = Math.min(start + CHUNK_SIZE, block.length)
+				const boundary =
+					target === block.length
+						? target
+						: Math.max(
+								block.lastIndexOf(". ", target),
+								block.lastIndexOf("\n", target),
+								start + Math.floor(CHUNK_SIZE * 0.7),
+							)
+				chunks.push(block.slice(start, boundary).trim())
+				if (boundary === block.length) break
+				start = Math.max(start + 1, boundary - CHUNK_OVERLAP)
+			}
+			current = ""
+			continue
+		}
+		const candidate = current ? `${current}\n\n${block}` : block
+		if (candidate.length > CHUNK_SIZE) flush()
+		current = current ? `${current}\n\n${block}` : block
+	}
+	if (current) chunks.push(current)
+	return chunks.filter(Boolean)
 }

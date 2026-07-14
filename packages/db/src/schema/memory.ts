@@ -7,6 +7,7 @@ import {
 	pgTable,
 	text,
 	timestamp,
+	unique,
 	uniqueIndex,
 } from "drizzle-orm/pg-core"
 import { nanoid } from "nanoid"
@@ -51,6 +52,7 @@ export const documents = pgTable(
 			.primaryKey()
 			.$defaultFn(() => nanoid()),
 		orgId: text("org_id").notNull(),
+		createdBy: text("created_by"),
 		connectionId: text("connection_id"),
 		teamId: text("team_id"),
 		ownerUserId: text("owner_user_id"),
@@ -81,11 +83,9 @@ export const documents = pgTable(
 		index("documents_org_idx").on(table.orgId),
 		index("documents_team_idx").on(table.teamId),
 		index("documents_owner_idx").on(table.ownerUserId),
-		uniqueIndex("documents_org_source_unique").on(
-			table.orgId,
-			table.source,
-			table.sourceId,
-		),
+		unique("documents_connection_source_unique")
+			.on(table.orgId, table.connectionId, table.source, table.sourceId)
+			.nullsNotDistinct(),
 	],
 )
 
@@ -104,12 +104,19 @@ export const memoryChunks = pgTable(
 			.references(() => documents.id, { onDelete: "cascade" }),
 		chunkIndex: integer("chunk_index").notNull(),
 		content: text("content").notNull(),
-		embedding: vector(1024)("embedding").notNull(),
+		embedding: vector(1024)("embedding"),
+		provenance: jsonb("provenance").$type<Record<string, unknown>>(),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.notNull()
 			.default(sql`now()`),
 	},
-	(table) => [index("memory_chunks_document_idx").on(table.documentId)],
+	(table) => [
+		index("memory_chunks_document_idx").on(table.documentId),
+		index("memory_chunks_fts_idx").using(
+			"gin",
+			sql`to_tsvector('english', ${table.content})`,
+		),
+	],
 )
 
 export const connectionProviderEnum = pgEnum("connection_provider", [
@@ -135,6 +142,7 @@ export const connections = pgTable(
 			.primaryKey()
 			.$defaultFn(() => nanoid()),
 		orgId: text("org_id").notNull(),
+		createdBy: text("created_by"),
 		provider: connectionProviderEnum("provider").notNull(),
 		providerAccountId: text("provider_account_id").notNull(),
 		accessToken: text("access_token").notNull(),

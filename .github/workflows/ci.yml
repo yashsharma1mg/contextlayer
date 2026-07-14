@@ -1,6 +1,8 @@
-name: CI - Type Check, Format & Lint
+name: Context Layer CI
 
 on:
+  push:
+    branches: [main]
   pull_request:
 
 concurrency:
@@ -9,9 +11,29 @@ concurrency:
 
 jobs:
   quality-checks:
-    name: Quality Checks
+    name: Quality and browser checks
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/contextlayer
+      BETTER_AUTH_SECRET: context-layer-ci-auth-secret-at-least-32-characters
+      BETTER_AUTH_URL: http://localhost:8789
+      STUDIO_URL: http://localhost:3002
+      CONNECTION_ENCRYPTION_KEY: context-layer-ci-encryption-key
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: contextlayer
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d contextlayer"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -26,8 +48,23 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Apply database migrations
+        run: bun run db:migrate
+
+      - name: Run Biome CI
+        run: bunx biome ci .
+
       - name: Run TypeScript type checking
         run: bun run check-types
 
-      - name: Run Biome CI (format & lint on changed files)
-        run: bunx biome ci --changed --since=origin/main --no-errors-on-unmatched
+      - name: Run unit tests
+        run: bun run test
+
+      - name: Build Linux packages
+        run: bunx turbo run build --filter='!context-layer-desktop'
+
+      - name: Install Chromium
+        run: bunx playwright install --with-deps chromium
+
+      - name: Run canvas workflow
+        run: bun run --cwd apps/studio test:e2e

@@ -1,4 +1,6 @@
-import { getValidFigmaConnection } from "./connections"
+import { connectionIngestScope, getValidFigmaConnection } from "./connections"
+import { db, documents } from "@repo/db"
+import { and, eq, like, notInArray } from "drizzle-orm"
 import {
 	commentMessageToText,
 	extractComponentDescriptions,
@@ -24,21 +26,29 @@ interface FigmaMetadata {
  * ingested, not arbitrary frames. Dev Mode annotations are skipped — the
  * REST API surface for them wasn't verified, unlike everything else here.
  */
-export async function syncFigmaFile(orgId: string, fileKey: string) {
+export async function syncFigmaFile(
+	orgId: string,
+	fileKey: string,
+	signal?: AbortSignal,
+) {
 	const conn = await getValidFigmaConnection(orgId)
 	if (!conn) throw new Error(`No Figma connection for org ${orgId}`)
 
-	const file = await getFile(fileKey, conn.accessToken)
-	const comments = await getFileComments(fileKey, conn.accessToken)
+	const file = await getFile(fileKey, conn.accessToken, signal)
+	const comments = await getFileComments(fileKey, conn.accessToken, signal)
 
 	let ingestedCount = 0
+	const sourceIds: string[] = []
 
 	for (const comp of extractComponentDescriptions(file.document)) {
+		const sourceId = `${fileKey}:component:${comp.nodeId}`
+		sourceIds.push(sourceId)
 		await ingestDocument({
 			orgId,
-			scope: "org",
+			connectionId: conn.id,
+			...connectionIngestScope(conn),
 			source: "figma",
-			sourceId: `${fileKey}:component:${comp.nodeId}`,
+			sourceId,
 			title: `${file.name} — ${comp.name}`,
 			url: `https://www.figma.com/file/${fileKey}?node-id=${comp.nodeId}`,
 			rawContent: comp.description,
@@ -49,11 +59,14 @@ export async function syncFigmaFile(orgId: string, fileKey: string) {
 	for (const comment of comments) {
 		const text = commentMessageToText(comment.message)
 		if (!text.trim()) continue
+		const sourceId = `${fileKey}:comment:${comment.id}`
+		sourceIds.push(sourceId)
 		await ingestDocument({
 			orgId,
-			scope: "org",
+			connectionId: conn.id,
+			...connectionIngestScope(conn),
 			source: "figma",
-			sourceId: `${fileKey}:comment:${comment.id}`,
+			sourceId,
 			title: `Comment in ${file.name}`,
 			url: `https://www.figma.com/file/${fileKey}#${comment.id}`,
 			rawContent: text,
@@ -62,16 +75,29 @@ export async function syncFigmaFile(orgId: string, fileKey: string) {
 		ingestedCount++
 	}
 
-	return { fileName: file.name, ingestedCount }
+	const deletedRows = await db
+		.delete(documents)
+		.where(
+			and(
+				eq(documents.connectionId, conn.id),
+				eq(documents.source, "figma"),
+				like(documents.sourceId, `${fileKey}:%`),
+				sourceIds.length
+					? notInArray(documents.sourceId, sourceIds)
+					: undefined,
+			),
+		)
+		.returning({ id: documents.id })
+	return { fileName: file.name, ingestedCount, deleted: deletedRows.length }
 }
 
-export async function syncAllWatchedFiles(orgId: string) {
+export async function syncAllWatchedFiles(orgId: string, signal?: AbortSignal) {
 	const conn = await getValidFigmaConnection(orgId)
 	if (!conn) throw new Error(`No Figma connection for org ${orgId}`)
 	const metadata = conn.metadata as unknown as FigmaMetadata
 	const results = []
 	for (const fileKey of metadata.watchedFileKeys ?? []) {
-		results.push({ fileKey, ...(await syncFigmaFile(orgId, fileKey)) })
+		results.push({ fileKey, ...(await syncFigmaFile(orgId, fileKey, signal)) })
 	}
 	return results
 }

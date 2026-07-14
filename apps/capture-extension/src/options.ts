@@ -41,6 +41,16 @@ requiredElement<HTMLButtonElement>("#save").addEventListener(
 				projectId: fields.projectId.value.trim(),
 				captureToken: fields.captureToken.value.trim(),
 			})
+			const projectId = fields.projectId.value.trim()
+			const sessionKey = `flowSession:${projectId}`
+			const flow = await chrome.storage.local.get(sessionKey)
+			if (!flow[sessionKey]) {
+				await chrome.storage.local.set({
+					[sessionKey]: crypto.randomUUID(),
+					[`flowStep:${projectId}`]: 0,
+				})
+				await chrome.storage.local.remove(`previousCapture:${projectId}`)
+			}
 			fields.status.textContent = "Capture target saved."
 		} catch (error) {
 			fields.status.textContent =
@@ -55,6 +65,10 @@ fields.resetFlow.addEventListener("click", async () => {
 		fields.status.textContent = "Enter a project ID before starting a new flow."
 		return
 	}
+	await chrome.storage.local.set({
+		[`flowSession:${projectId}`]: crypto.randomUUID(),
+		[`flowStep:${projectId}`]: 0,
+	})
 	await chrome.storage.local.remove(`previousCapture:${projectId}`)
 	fields.status.textContent = "The next capture starts a new flow."
 })

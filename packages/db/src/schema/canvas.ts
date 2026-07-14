@@ -60,6 +60,8 @@ export const captures = pgTable(
 		url: text("url").notNull(),
 		domOutline: text("dom_outline").notNull(),
 		screenshot: text("screenshot"),
+		domObjectId: text("dom_object_id"),
+		screenshotObjectId: text("screenshot_object_id"),
 		metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull(),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.notNull()
@@ -282,6 +284,9 @@ export const canvasComments = pgTable(
 		}),
 		authorUserId: text("author_user_id").notNull(),
 		body: text("body").notNull(),
+		mentions: jsonb("mentions").$type<string[]>().notNull().default([]),
+		resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+		resolvedBy: text("resolved_by"),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.notNull()
 			.default(sql`now()`),

@@ -4,7 +4,7 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"build": "bun build src/service-worker.ts src/options.ts --outdir dist --target browser && cp manifest.json dist/manifest.json && cp options.html dist/options.html",
+		"build": "bun build src/service-worker.ts src/options.ts src/preview.ts --outdir dist --target browser && cp manifest.json options.html preview.html dist/",
 		"check-types": "tsc --noEmit"
 	},
 	"devDependencies": {
