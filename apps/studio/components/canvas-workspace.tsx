@@ -1034,8 +1034,15 @@ function ArtifactPanel({
 	const [title, setTitle] = useState(initialTitle)
 	const [body, setBody] = useState(initialBody)
 	const [revisions, setRevisions] = useState<
-		{ id: string; version: number; title: string; createdAt: string }[]
+		{
+			id: string
+			version: number
+			title: string
+			content: Record<string, unknown>
+			createdAt: string
+		}[]
 	>([])
+	const [comparisonId, setComparisonId] = useState<string | null>(null)
 	const [busy, setBusy] = useState(false)
 	const [error, setError] = useState<string | null>(null)
 
@@ -1045,6 +1052,7 @@ function ArtifactPanel({
 				id: string
 				version: number
 				title: string
+				content: Record<string, unknown>
 				createdAt: string
 			}[]
 		}>(`/api/artifacts/${artifactId}/revisions`)
@@ -1075,6 +1083,11 @@ function ArtifactPanel({
 		}
 	}
 
+	const currentRevision = revisions[0]
+	const comparison = revisions.find((revision) => revision.id === comparisonId)
+	const revisionBody = (revision: (typeof revisions)[number]) =>
+		typeof revision.content.body === "string" ? revision.content.body : ""
+
 	return (
 		<div className="space-y-4">
 			<form onSubmit={save} className="space-y-3">
@@ -1097,16 +1110,53 @@ function ArtifactPanel({
 				<p className="text-xs font-medium">Version history</p>
 				{revisions.map((revision) => (
 					<div key={revision.id} className="rounded border border-border p-2">
-						<p className="text-xs font-medium">v{revision.version}</p>
-						<p className="truncate text-[11px] text-muted-foreground">
-							{revision.title}
-						</p>
-						<p className="mt-0.5 text-[10px] text-muted-foreground">
-							{new Date(revision.createdAt).toLocaleString()}
-						</p>
+						<div className="flex items-start justify-between gap-2">
+							<div className="min-w-0">
+								<p className="text-xs font-medium">v{revision.version}</p>
+								<p className="truncate text-[11px] text-muted-foreground">
+									{revision.title}
+								</p>
+								<p className="mt-0.5 text-[10px] text-muted-foreground">
+									{new Date(revision.createdAt).toLocaleString()}
+								</p>
+							</div>
+							{revision.id !== currentRevision?.id && (
+								<Button
+									variant="ghost"
+									size="xs"
+									onClick={() => setComparisonId(revision.id)}
+								>
+									Compare
+								</Button>
+							)}
+						</div>
 					</div>
 				))}
 			</div>
+			{comparison && currentRevision && (
+				<div className="space-y-2 border-t border-border pt-4">
+					<div className="flex items-center justify-between">
+						<p className="text-xs font-medium">
+							v{comparison.version} compared with v{currentRevision.version}
+						</p>
+						<Button
+							variant="ghost"
+							size="xs"
+							onClick={() => setComparisonId(null)}
+						>
+							Close
+						</Button>
+					</div>
+					<div className="grid grid-cols-2 gap-2">
+						<pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded border border-border bg-muted p-2 text-[10px] leading-4">
+							{revisionBody(comparison)}
+						</pre>
+						<pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded border border-border p-2 text-[10px] leading-4">
+							{revisionBody(currentRevision)}
+						</pre>
+					</div>
+				</div>
+			)}
 			{error && <p className="text-xs text-red-600">{error}</p>}
 		</div>
 	)

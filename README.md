@@ -113,7 +113,7 @@ Studio runs on the Next.js development port and the API runs on port `8787`.
 
 Create a project from Studio, then open it to work on its canvas. The board supports knowledge, capture, design-asset, note, frame, and generated-artifact nodes. Connect nodes with typed relationships, select relevant nodes as AI context, and generate a brief, flow, review, specification, or prototype from the composer.
 
-Files uploaded from a canvas are immediately placed on the board as knowledge nodes. The design-system drawer lists the project-pinned system and can add approved assets as contextual nodes. Generated artifacts can be edited from the selected-artifact panel; every save creates an immutable version entry. Canvas history records checkpoints before generation, capture import, context placement, and destructive changes. Restoring a checkpoint brings back the nodes, edges, and comments captured at that point; Context Layer snapshots the pre-restore state first, so restoration itself is recoverable.
+Files uploaded from a canvas are immediately placed on the board as knowledge nodes. The design-system drawer lists the project-pinned system and can add approved assets as contextual nodes. Generated artifacts can be edited from the selected-artifact panel; every save creates an immutable version entry, and an earlier version can be viewed beside the current one for review. Canvas history records checkpoints before generation, capture import, context placement, and destructive changes. Restoring a checkpoint brings back the nodes, edges, and comments captured at that point; Context Layer snapshots the pre-restore state first, so restoration itself is recoverable.
 
 ### Share and review
 
