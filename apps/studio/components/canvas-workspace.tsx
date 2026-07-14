@@ -934,8 +934,8 @@ function ContextPanel({
 	>([])
 	const [pinning, setPinning] = useState(false)
 	const [error, setError] = useState<string | null>(null)
-	useEffect(() => {
-		apiGet<{
+	const loadAssets = useCallback(async () => {
+		const result = await apiGet<{
 			assets: {
 				id: string
 				name: string
@@ -943,14 +943,16 @@ function ContextPanel({
 				description: string | null
 			}[]
 		}>(`/api/projects/${projectId}/design-assets`)
-			.then((result) => setAssets(result.assets))
-			.catch(() => undefined)
+		setAssets(result.assets)
+	}, [projectId])
+	useEffect(() => {
+		loadAssets().catch(() => undefined)
 		apiGet<{ versions: { id: string; name: string; version: string }[] }>(
 			"/api/design-system-versions",
 		)
 			.then((result) => setVersions(result.versions))
 			.catch(() => undefined)
-	}, [projectId])
+	}, [loadAssets])
 
 	async function pinDesignSystem(versionId: string) {
 		setPinning(true)
@@ -959,7 +961,7 @@ function ContextPanel({
 			await apiSend("PATCH", `/api/projects/${projectId}/design-system`, {
 				versionId: versionId || null,
 			})
-			await onProjectUpdated()
+			await Promise.all([onProjectUpdated(), loadAssets()])
 		} catch (cause) {
 			setError(
 				cause instanceof Error ? cause.message : "Could not pin design system",
