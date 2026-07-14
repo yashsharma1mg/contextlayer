@@ -12,6 +12,7 @@ import {
 	type Edge,
 	type Node,
 	type NodeProps,
+	type ReactFlowInstance,
 	type NodeTypes,
 	useEdgesState,
 	useNodesState,
@@ -76,7 +77,13 @@ interface WorkspaceNode {
 	artifactKind: string | null
 	artifactBody: string | null
 	artifactCode: string | null
-	artifactSources: { title: string }[] | null
+	artifactSources:
+		| {
+				documentId: string
+				title: string
+				url: string | null
+		  }[]
+		| null
 	documentTitle: string | null
 	documentUrl: string | null
 	documentSource: string | null
@@ -266,6 +273,10 @@ export function CanvasWorkspace({
 	const [workspace, setWorkspace] = useState<Workspace | null>(null)
 	const [nodes, setNodes, onNodesChange] = useNodesState<CanvasFlowNode>([])
 	const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
+	const [flowInstance, setFlowInstance] = useState<ReactFlowInstance<
+		CanvasFlowNode,
+		Edge
+	> | null>(null)
 	const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([])
 	const [prompt, setPrompt] = useState("")
 	const [mode, setMode] = useState<ArtifactKind>("brief")
@@ -297,6 +308,28 @@ export function CanvasWorkspace({
 		() =>
 			workspace?.nodes.find((node) => node.id === selectedNodeIds[0]) ?? null,
 		[selectedNodeIds, workspace],
+	)
+
+	const focusSource = useCallback(
+		(documentId: string) => {
+			const source = workspace?.nodes.find(
+				(node) => node.documentId === documentId,
+			)
+			if (!source) {
+				setError("This source has not been placed on the canvas.")
+				return
+			}
+			setSelectedNodeIds([source.id])
+			setNodes((current) =>
+				current.map((node) => ({ ...node, selected: node.id === source.id })),
+			)
+			flowInstance?.setCenter(
+				source.x + source.width / 2,
+				source.y + source.height / 2,
+				{ duration: 250, zoom: 1 },
+			)
+		},
+		[flowInstance, setNodes, workspace],
 	)
 
 	const persistNode = useCallback(
@@ -590,6 +623,7 @@ export function CanvasWorkspace({
 				nodesDraggable={!isReadOnly}
 				nodesConnectable={!isReadOnly}
 				elementsSelectable={!isReadOnly}
+				onInit={setFlowInstance}
 				onSelectionChange={({ nodes: selected }) => {
 					const next = selected.map((node) => node.id)
 					setSelectedNodeIds((current) =>
@@ -802,6 +836,8 @@ export function CanvasWorkspace({
 							artifactId={selectedRecord.artifactId}
 							title={selectedRecord.artifactTitle ?? selectedRecord.label}
 							body={selectedRecord.artifactBody ?? ""}
+							sources={selectedRecord.artifactSources ?? []}
+							onSourceSelected={focusSource}
 							onSaved={load}
 							onBranched={load}
 						/>
@@ -1089,12 +1125,16 @@ function ArtifactPanel({
 	artifactId,
 	title: initialTitle,
 	body: initialBody,
+	sources,
+	onSourceSelected,
 	onSaved,
 	onBranched,
 }: {
 	artifactId: string
 	title: string
 	body: string
+	sources: { documentId: string; title: string; url: string | null }[]
+	onSourceSelected: (documentId: string) => void
 	onSaved: () => Promise<void>
 	onBranched: () => Promise<void>
 }) {
@@ -1227,6 +1267,23 @@ function ArtifactPanel({
 					</div>
 				))}
 			</div>
+			{sources.length > 0 && (
+				<div className="space-y-2 border-t border-border pt-4">
+					<p className="text-xs font-medium">Evidence</p>
+					{sources.map((source) => (
+						<Button
+							key={source.documentId}
+							type="button"
+							variant="ghost"
+							size="xs"
+							className="max-w-full justify-start truncate"
+							onClick={() => onSourceSelected(source.documentId)}
+						>
+							{source.title}
+						</Button>
+					))}
+				</div>
+			)}
 			{comparison && currentRevision && (
 				<div className="space-y-2 border-t border-border pt-4">
 					<div className="flex items-center justify-between">
