@@ -4,7 +4,7 @@ import { uiPlanSchema } from "./ui-plan"
 
 test("creates React source from approved component imports", () => {
 	const plan = uiPlanSchema.parse({
-		title: "Settings",
+		title: "Settings <Admin>",
 		summary: "",
 		screens: [{ name: "Settings", purpose: "", states: ["default"] }],
 		navigation: [],
@@ -23,4 +23,13 @@ test("creates React source from approved component imports", () => {
 			},
 		]),
 	).toContain('import { Button as Button } from "@acme/ui"')
+	expect(
+		reactSourceFromUiPlan(plan, [
+			{
+				name: "Button",
+				kind: "component",
+				data: { importPath: "@acme/ui", exportName: "Button" },
+			},
+		]),
+	).toContain('<h1>{"Settings <Admin>"}</h1>')
 })

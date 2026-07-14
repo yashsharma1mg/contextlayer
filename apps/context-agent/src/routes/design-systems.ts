@@ -19,7 +19,12 @@ const assetSchema = z.object({
 	name: z.string().trim().min(1).max(160),
 	description: z.string().trim().max(4_000).optional(),
 	importPath: z.string().trim().max(500).optional(),
-	exportName: z.string().trim().max(160).optional(),
+	exportName: z
+		.string()
+		.trim()
+		.regex(/^[A-Za-z_$][\w$]*$/, "Must be a JavaScript identifier")
+		.max(160)
+		.optional(),
 	props: z.record(z.unknown()).default({}),
 	variants: z.record(z.unknown()).default({}),
 	examples: z.array(z.string().max(2_000)).max(20).default([]),

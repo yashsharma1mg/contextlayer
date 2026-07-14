@@ -24,7 +24,7 @@ export function reactSourceFromUiPlan(
 			},
 		]),
 	)
-	const used = plan.components.map((component) => {
+	const used = plan.components.map((component, index) => {
 		const asset = imports.get(component.componentId)
 		if (
 			!asset ||
@@ -33,7 +33,11 @@ export function reactSourceFromUiPlan(
 		) {
 			throw new Error(`Missing import mapping for ${component.componentId}`)
 		}
-		return { component, localName: identifier(component.componentId), ...asset }
+		return {
+			component,
+			localName: identifier(component.componentId) || `Component${index + 1}`,
+			...asset,
+		}
 	})
 	const importLines = used.map(
 		({ exportName, importPath, localName }) =>
@@ -43,5 +47,5 @@ export function reactSourceFromUiPlan(
 		({ component, localName }) =>
 			`      <${localName}${attributes({ ...component.props, ...component.variants })} />`,
 	)
-	return `"use client"\n\n${[...new Set(importLines)].join("\n")}\n\nexport default function ${identifier(plan.title) || "GeneratedScreen"}() {\n  return (\n    <main>\n      <h1>${plan.title}</h1>\n${elements.join("\n")}\n    </main>\n  )\n}\n`
+	return `"use client"\n\n${[...new Set(importLines)].join("\n")}\n\nexport default function ${identifier(plan.title) || "GeneratedScreen"}() {\n  return (\n    <main>\n      <h1>{${JSON.stringify(plan.title)}}</h1>\n${elements.join("\n")}\n    </main>\n  )\n}\n`
 }
