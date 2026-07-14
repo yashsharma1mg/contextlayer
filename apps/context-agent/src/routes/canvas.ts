@@ -25,6 +25,7 @@ import { createHash, randomBytes } from "node:crypto"
 import { requireCaller } from "../lib/caller"
 import { documentVisibility } from "../lib/access-policy"
 import { generateUi } from "../lib/generate-ui"
+import { artifactKinds, resolveArtifactKind } from "../lib/generation-routing"
 import { openrouter, withModelFallback } from "../lib/openrouter"
 import { getVisibleProject } from "../lib/project-access"
 import { searchMemories } from "../lib/search"
@@ -1032,18 +1033,7 @@ canvasRoute.post(
 
 const generateSchema = z.object({
 	prompt: z.string().trim().min(1).max(8_000),
-	kind: z
-		.enum([
-			"brief",
-			"requirement",
-			"user_flow",
-			"state_matrix",
-			"ux_review",
-			"interface_spec",
-			"test_case",
-			"react_prototype",
-		])
-		.default("brief"),
+	kind: z.enum([...artifactKinds, "auto"]).default("auto"),
 	selectedNodeIds: z.array(z.string()).max(30).default([]),
 })
 
@@ -1063,6 +1053,7 @@ canvasRoute.post(
 		const project = await getVisibleProject(c.req.param("projectId"), caller)
 		if (!project) return c.json({ error: "Project not found" }, 404)
 		const input = c.req.valid("json")
+		const kind = resolveArtifactKind(input.prompt, input.kind)
 		const canvas = await canvasForProject(project.id)
 		const selected = input.selectedNodeIds.length
 			? await db
@@ -1119,7 +1110,7 @@ canvasRoute.post(
 		let title: string
 		let body: string | null
 		let generatedCode: string | null = null
-		if (input.kind === "react_prototype") {
+		if (kind === "react_prototype") {
 			const approvedAssets = project.pinnedDesignSystemVersionId
 				? await db
 						.select({
@@ -1146,21 +1137,20 @@ canvasRoute.post(
 					schema: structuredArtifactSchema,
 					system:
 						"You are a product design collaborator. Produce a practical, evidence-grounded artifact. Always address missing requirements, permissions, loading, empty, error, validation, retry, quota, and recovery states where relevant.",
-					prompt: `Artifact type: ${input.kind}\n\nCanvas context:\n${selectedContext || "(none selected)"}\n\nKnowledge:\n${knowledge || "(no matching knowledge)"}\n\nRequest: ${input.prompt}`,
+					prompt: `Artifact type: ${kind}\n\nCanvas context:\n${selectedContext || "(none selected)"}\n\nKnowledge:\n${knowledge || "(no matching knowledge)"}\n\nRequest: ${input.prompt}`,
 				}),
 			)
 			title = object.title
 			body = `${object.summary}\n\n${object.sections.map((section) => `## ${section.heading}\n${section.items.map((item) => `- ${item}`).join("\n")}`).join("\n\n")}`
 		}
-		await checkpoint(canvas.id, caller.userId, `generate ${input.kind}`)
+		await checkpoint(canvas.id, caller.userId, `generate ${kind}`)
 		const artifact = await db.transaction(async (tx) => {
 			const [idea] = await tx
 				.insert(ideas)
 				.values({
 					projectId: project.id,
 					authorUserId: caller.userId,
-					kind:
-						input.kind === "react_prototype" ? "react_prototype" : input.kind,
+					kind,
 					title,
 					body,
 					generatedCode,
@@ -1194,9 +1184,9 @@ canvasRoute.post(
 					label: idea.title,
 					x: 420,
 					y: 120 + input.selectedNodeIds.length * 36,
-					width: input.kind === "react_prototype" ? 520 : 380,
-					height: input.kind === "react_prototype" ? 460 : 280,
-					data: { artifactKind: input.kind },
+					width: kind === "react_prototype" ? 520 : 380,
+					height: kind === "react_prototype" ? 460 : 280,
+					data: { artifactKind: kind },
 				})
 				.returning()
 			return { idea, node }

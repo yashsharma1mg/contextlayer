@@ -58,6 +58,8 @@ type ArtifactKind =
 	| "test_case"
 	| "react_prototype"
 
+type GenerationKind = ArtifactKind | "auto"
+
 interface WorkspaceNode {
 	id: string
 	kind: "artifact" | "knowledge" | "capture" | "design_asset" | "note" | "frame"
@@ -253,7 +255,8 @@ function toFlowEdge(edge: WorkspaceEdge): Edge {
 	}
 }
 
-const promptModes: { value: ArtifactKind; label: string }[] = [
+const promptModes: { value: GenerationKind; label: string }[] = [
+	{ value: "auto", label: "Auto" },
 	{ value: "brief", label: "Brief" },
 	{ value: "user_flow", label: "Flow" },
 	{ value: "ux_review", label: "Review" },
@@ -279,7 +282,7 @@ export function CanvasWorkspace({
 	> | null>(null)
 	const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([])
 	const [prompt, setPrompt] = useState("")
-	const [mode, setMode] = useState<ArtifactKind>("brief")
+	const [mode, setMode] = useState<GenerationKind>("auto")
 	const [busy, setBusy] = useState(false)
 	const [panel, setPanel] = useState<
 		"context" | "comments" | "history" | "share" | "artifact" | null
