@@ -1290,6 +1290,7 @@ function ArtifactPanel({
 			version: number
 			title: string
 			content: Record<string, unknown>
+			generationInput: { uiPlan?: unknown } | null
 			createdAt: string
 		}[]
 	>([])
@@ -1304,6 +1305,7 @@ function ArtifactPanel({
 				version: number
 				title: string
 				content: Record<string, unknown>
+				generationInput: { uiPlan?: unknown } | null
 				createdAt: string
 			}[]
 		}>(`/api/artifacts/${artifactId}/revisions`)
@@ -1353,6 +1355,8 @@ function ArtifactPanel({
 
 	const currentRevision = revisions[0]
 	const comparison = revisions.find((revision) => revision.id === comparisonId)
+	const uiPlan = currentRevision?.generationInput?.uiPlan
+	const hasUiPlan = uiPlan !== undefined && uiPlan !== null
 	const revisionBody = (revision: (typeof revisions)[number]) =>
 		typeof revision.content.body === "string" ? revision.content.body : ""
 
@@ -1427,6 +1431,16 @@ function ArtifactPanel({
 						</Button>
 					))}
 				</div>
+			)}
+			{hasUiPlan && (
+				<details className="border-t border-border pt-4">
+					<summary className="cursor-pointer text-xs font-medium">
+						Validated UI plan
+					</summary>
+					<pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded border border-border bg-muted p-2 text-[10px] leading-4">
+						{JSON.stringify(uiPlan, null, 2) ?? ""}
+					</pre>
+				</details>
 			)}
 			{comparison && currentRevision && (
 				<div className="space-y-2 border-t border-border pt-4">
