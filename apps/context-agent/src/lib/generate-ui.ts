@@ -1,0 +1,49 @@
+import { generateText } from "ai"
+import { openrouter, withModelFallback } from "./openrouter"
+import type { SearchResult } from "./search"
+
+const SYSTEM_PROMPT = `You generate a single, complete, self-contained HTML file for a UI mockup.
+
+Rules:
+- One file only: <!DOCTYPE html> through </html>. No external files except the Tailwind CDN.
+- Include <script src="https://cdn.tailwindcss.com"></script> in <head>.
+- Style exclusively with Tailwind utility classes. No <style> blocks unless truly unavoidable.
+- Use realistic placeholder content that matches the prompt's domain — never lorem ipsum.
+- No JavaScript beyond what's needed for basic interactivity (tabs, toggles). No external JS libraries, no fetch calls.
+- Output ONLY the HTML. No markdown fences, no explanation before or after.`
+
+/**
+ * Prompt -> single-file HTML+Tailwind mockup. Single-file HTML (not TSX)
+ * is deliberate: it renders in a sandboxed <iframe srcDoc> with zero build
+ * tooling and stays within what free OpenRouter models produce reliably.
+ */
+export async function generateUi(
+	prompt: string,
+	grounding: SearchResult[],
+): Promise<string> {
+	const context =
+		grounding.length > 0
+			? `\n\nRelevant team context to ground the design in:\n${grounding
+					.map((s) => `- ${s.title}: ${s.chunkContent.slice(0, 300)}`)
+					.join("\n")}`
+			: ""
+
+	const { text } = await withModelFallback((model) =>
+		generateText({
+			model: openrouter.chat(model),
+			system: SYSTEM_PROMPT,
+			prompt: `${prompt}${context}`,
+		}),
+	)
+
+	// Models occasionally wrap output in fences despite instructions —
+	// salvage rather than fail, since regeneration costs a full LLM call.
+	const fenced = text.match(/```(?:html)?\s*([\s\S]*?)```/)
+	const html = (fenced?.[1] ?? text).trim()
+	if (!html.toLowerCase().includes("<html")) {
+		throw new Error(
+			"Model did not return an HTML document; try rephrasing the prompt",
+		)
+	}
+	return html
+}
