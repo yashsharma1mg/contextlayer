@@ -2,6 +2,7 @@ import { zValidator } from "@hono/zod-validator"
 import { Hono } from "hono"
 import { nanoid } from "nanoid"
 import { z } from "zod"
+import { requireCaller } from "../lib/caller"
 import { extractText } from "../lib/extract-text"
 import { ingestDocument } from "../lib/ingest"
 import { searchMemories } from "../lib/search"
@@ -9,37 +10,50 @@ import { searchMemories } from "../lib/search"
 export const memoriesRoute = new Hono()
 
 const scopeSchema = z.enum(["org", "team", "personal"])
+const sourceSchema = z.enum([
+	"confluence",
+	"figma",
+	"manual",
+	"url",
+	"github",
+	"notion",
+	"google_drive",
+	"slack",
+	"capture",
+])
 
-// Shared correctness rule between the JSON route and the upload route —
-// factored out rather than duplicated so a fix to one can't drift from the other.
-const scopeRefinement = {
-	check: (v: { scope: string; teamId?: string; ownerUserId?: string }) =>
-		(v.scope === "team" && !!v.teamId) ||
-		(v.scope === "personal" && !!v.ownerUserId) ||
-		v.scope === "org",
-	message: "teamId required for team scope, ownerUserId for personal scope",
-}
-
-const addDocumentSchema = z
+const scopedInput = z
 	.object({
-		orgId: z.string(),
 		teamId: z.string().optional(),
-		ownerUserId: z.string().optional(),
 		scope: scopeSchema,
-		source: z.enum(["confluence", "figma", "manual"]),
+	})
+	.refine((value) => value.scope !== "team" || !!value.teamId, {
+		message: "teamId required for team scope",
+	})
+
+const addDocumentSchema = scopedInput.and(
+	z.object({
+		source: sourceSchema,
 		sourceId: z.string(),
 		title: z.string(),
 		url: z.string().url().optional(),
 		rawContent: z.string(),
+		mimeType: z.string().optional(),
+		provenance: z.record(z.unknown()).optional(),
 		sourceUpdatedAt: z.string().datetime().optional(),
-	})
-	.refine(scopeRefinement.check, { message: scopeRefinement.message })
+	}),
+)
 
-/** Ingest (or re-ingest) a document: chunk, embed, upsert by (source, sourceId). */
 memoriesRoute.post("/", zValidator("json", addDocumentSchema), async (c) => {
+	const caller = await requireCaller(c)
 	const body = c.req.valid("json")
+	if (body.teamId && !caller.teamIds.includes(body.teamId)) {
+		return c.json({ error: "Team access denied" }, 403)
+	}
 	const result = await ingestDocument({
 		...body,
+		orgId: caller.orgId,
+		ownerUserId: body.scope === "personal" ? caller.userId : undefined,
 		sourceUpdatedAt: body.sourceUpdatedAt
 			? new Date(body.sourceUpdatedAt)
 			: undefined,
@@ -47,54 +61,47 @@ memoriesRoute.post("/", zValidator("json", addDocumentSchema), async (c) => {
 	return c.json(result)
 })
 
-const uploadFieldsSchema = z
-	.object({
-		orgId: z.string(),
-		teamId: z.string().optional(),
-		ownerUserId: z.string().optional(),
-		scope: scopeSchema,
-		title: z.string().optional(),
-	})
-	.refine(scopeRefinement.check, { message: scopeRefinement.message })
+const uploadFieldsSchema = scopedInput.and(
+	z.object({ title: z.string().optional() }),
+)
 
-/**
- * Generic upload — not tied to any connector. Any file a user sends becomes
- * a document through the same ingest/understand/embed pipeline as
- * Confluence and Figma content.
- */
 memoriesRoute.post("/upload", async (c) => {
+	const caller = await requireCaller(c)
 	const body = await c.req.parseBody()
 	const file = body.file
 	if (!(file instanceof File)) throw new Error("Missing 'file' in form data")
 
 	const fields = uploadFieldsSchema.parse({
-		orgId: body.orgId,
 		teamId: body.teamId || undefined,
-		ownerUserId: body.ownerUserId || undefined,
 		scope: body.scope,
 		title: body.title || undefined,
 	})
+	if (fields.teamId && !caller.teamIds.includes(fields.teamId)) {
+		return c.json({ error: "Team access denied" }, 403)
+	}
 
 	const rawContent = await extractText(file)
 	const result = await ingestDocument({
 		...fields,
+		orgId: caller.orgId,
+		ownerUserId: fields.scope === "personal" ? caller.userId : undefined,
 		source: "manual",
 		sourceId: `upload:${nanoid()}`,
 		title: fields.title ?? file.name,
 		rawContent,
+		mimeType: file.type || undefined,
+		provenance: { fileName: file.name, size: file.size },
 	})
 	return c.json(result)
 })
 
 const searchSchema = z.object({
-	q: z.string().min(1),
-	orgId: z.string(),
-	teamIds: z.array(z.string()).default([]),
-	userId: z.string(),
+	q: z.string().trim().min(1).max(8_000),
 	limit: z.coerce.number().int().min(1).max(50).default(10),
 })
 
 memoriesRoute.get("/search", zValidator("query", searchSchema), async (c) => {
-	const results = await searchMemories(c.req.valid("query"))
+	const caller = await requireCaller(c)
+	const results = await searchMemories({ ...c.req.valid("query"), ...caller })
 	return c.json({ results })
 })

@@ -10,6 +10,10 @@ import { organization } from "better-auth/plugins"
  * `documentAcl` table in @repo/db (see packages/db/src/schema/memory.ts).
  */
 export const auth = betterAuth({
+	trustedOrigins: [
+		process.env.STUDIO_URL ?? "http://localhost:3000",
+		...(process.env.BETTER_AUTH_TRUSTED_ORIGINS?.split(",") ?? []),
+	],
 	database: drizzleAdapter(db, { provider: "pg" }),
 	emailAndPassword: {
 		enabled: true,

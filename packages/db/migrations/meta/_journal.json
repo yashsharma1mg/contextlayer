@@ -15,6 +15,34 @@
       "when": 1784014786616,
       "tag": "0001_spotty_deathstrike",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784024654958,
+      "tag": "0002_strange_adam_warlock",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1784025256769,
+      "tag": "0003_perpetual_talos",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784025580124,
+      "tag": "0004_glamorous_sleeper",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784027996738,
+      "tag": "0005_known_stepford_cuckoos",
+      "breakpoints": true
     }
   ]
 }

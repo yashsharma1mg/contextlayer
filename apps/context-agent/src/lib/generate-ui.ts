@@ -5,17 +5,16 @@ import type { SearchResult } from "./search"
 const SYSTEM_PROMPT = `You generate a single, complete, self-contained HTML file for a UI mockup.
 
 Rules:
-- One file only: <!DOCTYPE html> through </html>. No external files except the Tailwind CDN.
-- Include <script src="https://cdn.tailwindcss.com"></script> in <head>.
-- Style exclusively with Tailwind utility classes. No <style> blocks unless truly unavoidable.
+- One file only: <!DOCTYPE html> through </html>. No external scripts, stylesheets, fonts, images, network requests, or fetch calls.
+- Put all CSS in one <style> block in <head>. Use clean system fonts and responsive CSS.
 - Use realistic placeholder content that matches the prompt's domain — never lorem ipsum.
 - No JavaScript beyond what's needed for basic interactivity (tabs, toggles). No external JS libraries, no fetch calls.
 - Output ONLY the HTML. No markdown fences, no explanation before or after.`
 
 /**
- * Prompt -> single-file HTML+Tailwind mockup. Single-file HTML (not TSX)
- * is deliberate: it renders in a sandboxed <iframe srcDoc> with zero build
- * tooling and stays within what free OpenRouter models produce reliably.
+ * Prompt -> a complete offline HTML prototype. The no-network contract lets
+ * Studio render it inside a sandbox without giving generated code access to
+ * the user's session, product, or connector data.
  */
 export async function generateUi(
 	prompt: string,

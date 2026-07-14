@@ -1,15 +1,33 @@
 import { connections, db } from "@repo/db"
 import { eq } from "drizzle-orm"
 import { Hono } from "hono"
+import { cors } from "hono/cors"
 import { auth } from "./auth"
 import { syncConfluenceConnection } from "./lib/confluence-sync"
 import { syncAllWatchedFiles } from "./lib/figma-sync"
+import { assertConnectionEncryptionConfigured } from "./lib/secrets"
 import { askRoute } from "./routes/ask"
+import { canvasRoute } from "./routes/canvas"
+import { captureImportRoute } from "./routes/capture-import"
 import { connectionsRoute } from "./routes/connections"
+import { designSystemsRoute } from "./routes/design-systems"
 import { ideasRoute } from "./routes/ideas"
+import { mcpRoute, mcpTokensRoute } from "./routes/mcp"
 import { memoriesRoute } from "./routes/memories"
 
 const app = new Hono()
+
+assertConnectionEncryptionConfigured()
+
+app.use(
+	"*",
+	cors({
+		origin: process.env.STUDIO_URL ?? "http://localhost:3000",
+		credentials: true,
+		allowHeaders: ["Content-Type", "Authorization"],
+		allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+	}),
+)
 
 app.get("/health", (c) => c.json({ ok: true }))
 
@@ -19,6 +37,11 @@ app.route("/api/memories", memoriesRoute)
 app.route("/api/ask", askRoute)
 app.route("/api/connections", connectionsRoute)
 app.route("/api", ideasRoute)
+app.route("/api", canvasRoute)
+app.route("/api/capture", captureImportRoute)
+app.route("/api", designSystemsRoute)
+app.route("/api/mcp", mcpTokensRoute)
+app.route("/mcp", mcpRoute)
 
 // Neither Confluence (3LO apps get no webhooks) nor this Figma integration
 // (no push mechanism used) support push updates, so periodic polling is the

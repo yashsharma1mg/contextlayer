@@ -3,9 +3,10 @@
   "private": true,
   "scripts": {
     "build": "turbo run build",
-    "dev": "turbo run dev",
-    "format-lint": "bunx biome check --write",
-    "check-types": "turbo run check-types",
+		"dev": "turbo run dev",
+		"format-lint": "bunx biome check --write",
+		"test": "turbo run test",
+		"check-types": "turbo run check-types",
     "db:generate": "cd packages/db && bunx drizzle-kit generate",
     "db:migrate": "cd packages/db && bunx drizzle-kit migrate"
   },

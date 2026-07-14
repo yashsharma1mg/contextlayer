@@ -9,11 +9,23 @@ export interface IngestInput {
 	teamId?: string
 	ownerUserId?: string
 	scope: "org" | "team" | "personal"
-	source: "confluence" | "figma" | "manual"
+	source:
+		| "confluence"
+		| "figma"
+		| "manual"
+		| "url"
+		| "github"
+		| "notion"
+		| "google_drive"
+		| "slack"
+		| "capture"
 	sourceId: string
 	title: string
 	url?: string
 	rawContent: string
+	mimeType?: string
+	storageKey?: string
+	provenance?: Record<string, unknown>
 	sourceUpdatedAt?: Date
 }
 
@@ -23,7 +35,7 @@ export async function ingestDocument(input: IngestInput) {
 		.insert(documents)
 		.values(input)
 		.onConflictDoUpdate({
-			target: [documents.source, documents.sourceId],
+			target: [documents.orgId, documents.source, documents.sourceId],
 			set: {
 				title: input.title,
 				url: input.url,

@@ -22,6 +22,12 @@ export const documentSourceEnum = pgEnum("document_source", [
 	"confluence",
 	"figma",
 	"manual",
+	"url",
+	"github",
+	"notion",
+	"google_drive",
+	"slack",
+	"capture",
 ])
 
 export const containerScopeEnum = pgEnum("container_scope", [
@@ -45,6 +51,7 @@ export const documents = pgTable(
 			.primaryKey()
 			.$defaultFn(() => nanoid()),
 		orgId: text("org_id").notNull(),
+		connectionId: text("connection_id"),
 		teamId: text("team_id"),
 		ownerUserId: text("owner_user_id"),
 		scope: containerScopeEnum("scope").notNull(),
@@ -55,6 +62,9 @@ export const documents = pgTable(
 		url: text("url"),
 		// Raw content as fetched (ADF JSON for Confluence, comment/description text for Figma).
 		rawContent: text("raw_content").notNull(),
+		mimeType: text("mime_type"),
+		storageKey: text("storage_key"),
+		provenance: jsonb("provenance").$type<Record<string, unknown>>(),
 		metadata: jsonb("metadata").$type<Record<string, unknown>>(),
 		// High-watermark for CQL polling (Confluence has no webhook support for OAuth apps).
 		sourceUpdatedAt: timestamp("source_updated_at", {
@@ -71,7 +81,11 @@ export const documents = pgTable(
 		index("documents_org_idx").on(table.orgId),
 		index("documents_team_idx").on(table.teamId),
 		index("documents_owner_idx").on(table.ownerUserId),
-		uniqueIndex("documents_source_unique").on(table.source, table.sourceId),
+		uniqueIndex("documents_org_source_unique").on(
+			table.orgId,
+			table.source,
+			table.sourceId,
+		),
 	],
 )
 
@@ -101,6 +115,11 @@ export const memoryChunks = pgTable(
 export const connectionProviderEnum = pgEnum("connection_provider", [
 	"confluence",
 	"figma",
+	"github",
+	"notion",
+	"google_drive",
+	"slack",
+	"mcp",
 ])
 
 /**

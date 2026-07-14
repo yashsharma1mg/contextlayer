@@ -2,6 +2,7 @@ import { connections, db } from "@repo/db"
 import { and, eq } from "drizzle-orm"
 import { refreshAccessToken as refreshConfluenceToken } from "./confluence"
 import { refreshAccessToken as refreshFigmaToken } from "./figma"
+import { decryptSecret, encryptSecret } from "./secrets"
 
 type Connection = typeof connections.$inferSelect
 
@@ -12,7 +13,12 @@ async function getConnection(orgId: string, provider: "confluence" | "figma") {
 		.where(
 			and(eq(connections.orgId, orgId), eq(connections.provider, provider)),
 		)
-	return conn ?? null
+	if (!conn) return null
+	return {
+		...conn,
+		accessToken: decryptSecret(conn.accessToken),
+		refreshToken: decryptSecret(conn.refreshToken),
+	}
 }
 
 const isExpiring = (conn: Connection) =>
@@ -29,8 +35,8 @@ export async function getValidConfluenceConnection(
 	const [updated] = await db
 		.update(connections)
 		.set({
-			accessToken: refreshed.access_token,
-			refreshToken: refreshed.refresh_token,
+			accessToken: encryptSecret(refreshed.access_token),
+			refreshToken: encryptSecret(refreshed.refresh_token),
 			tokenExpiresAt: new Date(Date.now() + refreshed.expires_in * 1000),
 		})
 		.where(eq(connections.id, conn.id))
@@ -49,7 +55,7 @@ export async function getValidFigmaConnection(
 	const [updated] = await db
 		.update(connections)
 		.set({
-			accessToken: refreshed.access_token,
+			accessToken: encryptSecret(refreshed.access_token),
 			tokenExpiresAt: new Date(Date.now() + refreshed.expires_in * 1000),
 		})
 		.where(eq(connections.id, conn.id))

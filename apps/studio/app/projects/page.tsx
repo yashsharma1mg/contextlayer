@@ -28,7 +28,7 @@ export default function ProjectsPage() {
 
 	const load = useCallback(async () => {
 		if (!caller) return
-		const data = await apiGet<{ projects: Project[] }>("/api/projects", caller)
+		const data = await apiGet<{ projects: Project[] }>("/api/projects")
 		setProjects(data.projects)
 	}, [caller])
 
@@ -42,7 +42,7 @@ export default function ProjectsPage() {
 		setBusy(true)
 		setError(null)
 		try {
-			await apiSend("POST", "/api/projects", { name, ...caller })
+			await apiSend("POST", "/api/projects", { name })
 			setName("")
 			await load()
 		} catch (e) {

@@ -26,6 +26,9 @@ coverage
 
 # Build Outputs
 .next/
+.next-e2e/
+playwright-report/
+test-results/
 out/
 build
 dist

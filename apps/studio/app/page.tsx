@@ -56,12 +56,9 @@ export default function ConsolePage() {
 		try {
 			const res = await fetch(`${API_URL}/api/ask`, {
 				method: "POST",
+				credentials: "include",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					q: question,
-					orgId: activeOrg.id,
-					userId: session.user.id,
-				}),
+				body: JSON.stringify({ q: question }),
 			})
 			if (!res.ok) throw new Error(`Request failed: ${res.status}`)
 			const data = await res.json()

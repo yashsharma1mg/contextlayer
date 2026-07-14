@@ -3,7 +3,6 @@
 import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { authClient, useSession } from "@/lib/auth-client"
-import type { Caller } from "@/lib/api"
 
 /**
  * Session + active-org identity for API calls, with redirect-to-login.
@@ -11,7 +10,7 @@ import type { Caller } from "@/lib/api"
  * yet, so team-shared projects only appear once that's wired up.
  */
 export function useCaller(): {
-	caller: Caller | null
+	caller: { orgId: string; userId: string } | null
 	pending: boolean
 	orgName: string | null
 } {
@@ -29,7 +28,7 @@ export function useCaller(): {
 		return { caller: null, pending, orgName: null }
 	}
 	return {
-		caller: { orgId: activeOrg.id, userId: session.user.id, teamIds: [] },
+		caller: { orgId: activeOrg.id, userId: session.user.id },
 		pending: false,
 		orgName: activeOrg.name,
 	}
