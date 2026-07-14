@@ -1016,6 +1016,10 @@ function ContextPanel({
 	const [pinning, setPinning] = useState(false)
 	const [error, setError] = useState<string | null>(null)
 	const [assetQuery, setAssetQuery] = useState("")
+	const [connections, setConnections] = useState({
+		figma: false,
+		confluence: false,
+	})
 	const loadAssets = useCallback(async () => {
 		const result = await apiGet<{
 			assets: {
@@ -1035,6 +1039,19 @@ function ContextPanel({
 			.then((result) => setVersions(result.versions))
 			.catch(() => undefined)
 	}, [loadAssets])
+	useEffect(() => {
+		Promise.all([
+			apiGet<{ connected: boolean }>("/api/connections/figma/status"),
+			apiGet<{ connected: boolean }>("/api/connections/confluence/status"),
+		])
+			.then(([figma, confluence]) =>
+				setConnections({
+					figma: figma.connected,
+					confluence: confluence.connected,
+				}),
+			)
+			.catch(() => undefined)
+	}, [])
 
 	async function pinDesignSystem(versionId: string) {
 		setPinning(true)
@@ -1146,6 +1163,29 @@ function ContextPanel({
 						{captureToken}
 					</p>
 				)}
+			</div>
+			<div className="space-y-2 border-t border-border pt-3">
+				<p className="text-xs font-medium">Connections</p>
+				<div className="flex items-center justify-between gap-2 text-xs">
+					<span className="text-muted-foreground">
+						Figma {connections.figma ? "connected" : "not connected"}
+					</span>
+					<Button asChild size="xs" variant="outline">
+						<a href={`${API_URL}/api/connections/figma/start`}>
+							{connections.figma ? "Reconnect" : "Connect"}
+						</a>
+					</Button>
+				</div>
+				<div className="flex items-center justify-between gap-2 text-xs">
+					<span className="text-muted-foreground">
+						Confluence {connections.confluence ? "connected" : "not connected"}
+					</span>
+					<Button asChild size="xs" variant="outline">
+						<a href={`${API_URL}/api/connections/confluence/start`}>
+							{connections.confluence ? "Reconnect" : "Connect"}
+						</a>
+					</Button>
+				</div>
 			</div>
 			<Link
 				href="/projects"
