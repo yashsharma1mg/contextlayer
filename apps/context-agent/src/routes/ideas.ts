@@ -16,6 +16,7 @@ import { createHash, randomBytes } from "node:crypto"
 import { z } from "zod"
 import { requireCaller } from "../lib/caller"
 import { generateUi } from "../lib/generate-ui"
+import { isRepositoryPath } from "../lib/github-publication"
 import { openrouter, withModelFallback } from "../lib/openrouter"
 import { getVisibleProject, projectVisibility } from "../lib/project-access"
 import { type SearchResult, searchMemories } from "../lib/search"
@@ -28,9 +29,25 @@ const githubSettingsSchema = z.object({
 		.trim()
 		.regex(/^[\w.-]+\/[\w.-]+$/),
 	baseBranch: z.string().trim().min(1).max(120).default("main"),
-	appRoot: z.string().trim().min(1).max(300).default("."),
+	appRoot: z
+		.string()
+		.trim()
+		.min(1)
+		.max(300)
+		.refine(isRepositoryPath, "Must be repository-relative")
+		.default("."),
 	packageManager: z.enum(["bun", "npm", "pnpm", "yarn"]).default("bun"),
-	allowedPaths: z.array(z.string().trim().min(1).max(300)).max(50).default([]),
+	allowedPaths: z
+		.array(
+			z
+				.string()
+				.trim()
+				.min(1)
+				.max(300)
+				.refine(isRepositoryPath, "Must be repository-relative"),
+		)
+		.max(50)
+		.default([]),
 	designSystemImport: z.string().trim().max(300).optional(),
 })
 
