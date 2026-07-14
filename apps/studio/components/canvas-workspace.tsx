@@ -940,6 +940,7 @@ function ContextPanel({
 	>([])
 	const [pinning, setPinning] = useState(false)
 	const [error, setError] = useState<string | null>(null)
+	const [assetQuery, setAssetQuery] = useState("")
 	const loadAssets = useCallback(async () => {
 		const result = await apiGet<{
 			assets: {
@@ -1000,6 +1001,12 @@ function ContextPanel({
 		setCaptureToken(result.token)
 	}
 
+	const visibleAssets = assets.filter((asset) =>
+		`${asset.name} ${asset.kind} ${asset.description ?? ""}`
+			.toLowerCase()
+			.includes(assetQuery.trim().toLowerCase()),
+	)
+
 	return (
 		<div className="space-y-4">
 			<div>
@@ -1019,7 +1026,12 @@ function ContextPanel({
 				</select>
 			</div>
 			<div className="space-y-2">
-				{assets.slice(0, 12).map((asset) => (
+				<Input
+					value={assetQuery}
+					onChange={(event) => setAssetQuery(event.target.value)}
+					placeholder="Search design assets"
+				/>
+				{visibleAssets.map((asset) => (
 					<div
 						key={asset.id}
 						className="flex items-center justify-between gap-2 rounded border border-border p-2"
@@ -1045,6 +1057,9 @@ function ContextPanel({
 						Connect a design system from the project settings to ground
 						prototypes in real components.
 					</p>
+				)}
+				{assets.length > 0 && visibleAssets.length === 0 && (
+					<p className="text-xs text-muted-foreground">No matching assets.</p>
 				)}
 			</div>
 			<div className="border-t border-border pt-3">
