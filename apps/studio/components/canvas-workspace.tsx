@@ -1284,6 +1284,7 @@ function GitHubSettings({
 	const [repository, setRepository] = useState("")
 	const [baseBranch, setBaseBranch] = useState("main")
 	const [appRoot, setAppRoot] = useState(".")
+	const [packageManager, setPackageManager] = useState("bun")
 	const [allowedPaths, setAllowedPaths] = useState("")
 	const [saving, setSaving] = useState(false)
 	const [status, setStatus] = useState<string | null>(null)
@@ -1294,6 +1295,7 @@ function GitHubSettings({
 				repository: string
 				baseBranch: string
 				appRoot: string
+				packageManager: string
 				allowedPaths: string[]
 			} | null
 		}>(`/api/projects/${projectId}/github`)
@@ -1302,6 +1304,7 @@ function GitHubSettings({
 				setRepository(settings.repository)
 				setBaseBranch(settings.baseBranch)
 				setAppRoot(settings.appRoot)
+				setPackageManager(settings.packageManager)
 				setAllowedPaths(settings.allowedPaths.join(", "))
 			})
 			.catch(() => undefined)
@@ -1316,7 +1319,7 @@ function GitHubSettings({
 				repository,
 				baseBranch,
 				appRoot,
-				packageManager: "bun",
+				packageManager,
 				allowedPaths: allowedPaths
 					.split(",")
 					.map((path) => path.trim())
@@ -1360,6 +1363,18 @@ function GitHubSettings({
 					required
 				/>
 			</div>
+			<select
+				aria-label="Package manager"
+				value={packageManager}
+				onChange={(event) => setPackageManager(event.target.value)}
+				disabled={!canManageSettings}
+				className="h-8 w-full rounded-[var(--radius-md)] border border-input bg-background px-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+			>
+				<option value="bun">Bun</option>
+				<option value="npm">npm</option>
+				<option value="pnpm">pnpm</option>
+				<option value="yarn">Yarn</option>
+			</select>
 			<Input
 				value={allowedPaths}
 				onChange={(event) => setAllowedPaths(event.target.value)}
