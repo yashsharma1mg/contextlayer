@@ -117,7 +117,7 @@ Files uploaded from a canvas are immediately placed on the board as knowledge no
 
 ### Share and review
 
-Project owners can choose personal or organization-wide access from the canvas Share panel. They can also issue a read-only review link that expires after 30 days by default. The raw link token is shown once, stored only as a SHA-256 digest, and can be revoked from the same panel. Shared canvases do not expose editing, generation, comments, capture tokens, source drawers, or history controls.
+Project owners can choose personal, team-scoped, or organization-wide access from the canvas Share panel. They can also issue a read-only review link that expires after 30 days by default. The raw link token is shown once, stored only as a SHA-256 digest, and can be revoked from the same panel. Shared canvases do not expose editing, generation, comments, capture tokens, source drawers, or history controls.
 
 ### Product capture extension
 
