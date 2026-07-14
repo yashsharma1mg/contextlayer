@@ -59,6 +59,13 @@ type ArtifactKind =
 	| "react_prototype"
 
 type GenerationKind = ArtifactKind | "auto"
+type EdgeKind =
+	| "derived_from"
+	| "supports"
+	| "contradicts"
+	| "flows_to"
+	| "implements"
+	| "references"
 
 interface WorkspaceNode {
 	id: string
@@ -264,6 +271,15 @@ const promptModes: { value: GenerationKind; label: string }[] = [
 	{ value: "react_prototype", label: "Prototype" },
 ]
 
+const edgeKinds: { value: EdgeKind; label: string }[] = [
+	{ value: "references", label: "References" },
+	{ value: "supports", label: "Supports" },
+	{ value: "contradicts", label: "Contradicts" },
+	{ value: "flows_to", label: "Flows to" },
+	{ value: "implements", label: "Implements" },
+	{ value: "derived_from", label: "Derived from" },
+]
+
 type CanvasWorkspaceProps =
 	| { projectId: string; shareToken?: never }
 	| { projectId?: never; shareToken: string }
@@ -281,6 +297,7 @@ export function CanvasWorkspace({
 		Edge
 	> | null>(null)
 	const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([])
+	const [edgeKind, setEdgeKind] = useState<EdgeKind>("references")
 	const [prompt, setPrompt] = useState("")
 	const [mode, setMode] = useState<GenerationKind>("auto")
 	const [busy, setBusy] = useState(false)
@@ -389,7 +406,7 @@ export function CanvasWorkspace({
 					{
 						sourceNodeId: connection.source,
 						targetNodeId: connection.target,
-						kind: "references",
+						kind: edgeKind,
 					},
 				)
 				setEdges((current) => addEdge(toFlowEdge(result.edge), current))
@@ -404,7 +421,7 @@ export function CanvasWorkspace({
 				)
 			}
 		},
-		[setEdges, workspace],
+		[edgeKind, setEdges, workspace],
 	)
 
 	const removeNodes = useCallback(
@@ -930,11 +947,28 @@ export function CanvasWorkspace({
 								</button>
 							))}
 						</div>
-						<span className="shrink-0 text-xs text-muted-foreground">
-							{selectedNodeIds.length
-								? `${selectedNodeIds.length} context selected`
-								: "Auto"}
-						</span>
+						<div className="flex shrink-0 items-center gap-2">
+							<select
+								aria-label="New connection relationship"
+								title="New connection relationship"
+								value={edgeKind}
+								onChange={(event) =>
+									setEdgeKind(event.target.value as EdgeKind)
+								}
+								className="h-7 max-w-28 rounded border border-border bg-white px-1.5 text-[10px] text-muted-foreground"
+							>
+								{edgeKinds.map((kind) => (
+									<option key={kind.value} value={kind.value}>
+										{kind.label}
+									</option>
+								))}
+							</select>
+							<span className="text-xs text-muted-foreground">
+								{selectedNodeIds.length
+									? `${selectedNodeIds.length} context selected`
+									: "Auto"}
+							</span>
+						</div>
 					</div>
 				</form>
 			)}
