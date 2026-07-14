@@ -109,6 +109,7 @@ interface Workspace {
 		id: string
 		name: string
 		pinnedDesignSystemVersionId: string | null
+		pinnedDesignSystem?: { name: string; version: string } | null
 		visibility?: "personal" | "team" | "org"
 	}
 	canvas: { id: string; name: string; revision: number }
@@ -664,6 +665,11 @@ export function CanvasWorkspace({
 								<Layers3 />
 							</Button>
 						</SimpleTooltip>
+						<span className="max-w-36 truncate px-2 text-[10px] text-muted-foreground">
+							{workspace.project.pinnedDesignSystem
+								? `${workspace.project.pinnedDesignSystem.name} v${workspace.project.pinnedDesignSystem.version}`
+								: "No system"}
+						</span>
 						<SimpleTooltip label="Artifact revisions">
 							<Button
 								aria-label="Artifact revisions"

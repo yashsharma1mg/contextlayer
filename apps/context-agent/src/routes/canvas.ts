@@ -10,6 +10,8 @@ import {
 	captureTokens,
 	db,
 	designAssets,
+	designSystemVersions,
+	designSystems,
 	documents,
 	ideas,
 	projectShareLinks,
@@ -234,7 +236,25 @@ canvasRoute.get("/projects/:projectId/canvas", async (c) => {
 	const project = await getVisibleProject(c.req.param("projectId"), caller)
 	if (!project) return c.json({ error: "Project not found" }, 404)
 	const canvas = await canvasForProject(project.id)
-	return c.json({ project, canvas, ...(await workspace(canvas.id)) })
+	const [pinnedDesignSystem] = project.pinnedDesignSystemVersionId
+		? await db
+				.select({
+					name: designSystems.name,
+					version: designSystemVersions.version,
+				})
+				.from(designSystemVersions)
+				.innerJoin(
+					designSystems,
+					eq(designSystems.id, designSystemVersions.designSystemId),
+				)
+				.where(eq(designSystemVersions.id, project.pinnedDesignSystemVersionId))
+				.limit(1)
+		: []
+	return c.json({
+		project: { ...project, pinnedDesignSystem: pinnedDesignSystem ?? null },
+		canvas,
+		...(await workspace(canvas.id)),
+	})
 })
 
 canvasRoute.get("/artifacts/:id/revisions", async (c) => {
@@ -421,7 +441,11 @@ canvasRoute.get("/shared/:token", async (c) => {
 		.limit(1)
 	if (!project) return c.json({ error: "Project not found" }, 404)
 	return c.json({
-		project: { ...project, pinnedDesignSystemVersionId: null },
+		project: {
+			...project,
+			pinnedDesignSystemVersionId: null,
+			pinnedDesignSystem: null,
+		},
 		canvas,
 		...(await workspace(canvas.id)),
 	})
