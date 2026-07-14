@@ -82,12 +82,14 @@ export default function ProjectsPage() {
 					<h1 className="text-lg font-medium text-foreground">Projects</h1>
 					<p className="text-sm text-muted-foreground">{orgName}</p>
 				</div>
-				<Link
-					href="/"
-					className="text-sm text-muted-foreground hover:text-foreground"
-				>
-					Knowledge base →
-				</Link>
+				<div className="flex gap-4 text-sm text-muted-foreground">
+					<Link href="/" className="hover:text-foreground">
+						Knowledge base
+					</Link>
+					<Link href="/design-systems" className="hover:text-foreground">
+						Design systems
+					</Link>
+				</div>
 			</div>
 
 			<form onSubmit={handleCreate} className="mb-8 flex gap-2">

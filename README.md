@@ -135,7 +135,7 @@ In a project canvas, open the context drawer and generate a capture token. Enter
 
 ### Design-system manifests
 
-Design-system owners create a system, upload a validated `DesignManifestV1`, activate a version, and pin that version to a project through the API. A manifest records the package, preview entry, CSS, tokens, foundations, components, patterns, props, variants, examples, accessibility guidance, and source mappings. The current release exposes this API-first workflow; automated Storybook/package/Figma manifest import remains follow-up work.
+Design-system owners create a system from Studio's `/design-systems` page, submit a validated `DesignManifestV1`, activate a version, and pin that version to a project. A manifest records the package, preview entry, CSS, tokens, foundations, components, patterns, props, variants, examples, accessibility guidance, and source mappings. The first Studio workflow intentionally uses a JSON manifest editor backed by server validation; automated Storybook/package/Figma manifest import remains follow-up work.
 
 ### MCP
 
