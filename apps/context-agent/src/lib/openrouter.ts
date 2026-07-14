@@ -14,6 +14,12 @@ export const openrouter = createOpenAI({
 export const DEFAULT_MODEL =
 	process.env.OPENROUTER_CHAT_MODEL ?? "nvidia/nemotron-3-ultra-550b-a55b:free"
 
+const MAX_CONCURRENT_MODEL_REQUESTS = Math.max(
+	1,
+	Number(process.env.MODEL_CONCURRENCY) || 2,
+)
+let activeModelRequests = 0
+
 /**
  * Free OpenRouter slugs get rate-limited and retired without notice — run
  * the call against the primary model, and on failure retry once with
@@ -23,6 +29,10 @@ export const DEFAULT_MODEL =
 export async function withModelFallback<T>(
 	run: (modelSlug: string) => Promise<T>,
 ): Promise<T> {
+	if (activeModelRequests >= MAX_CONCURRENT_MODEL_REQUESTS) {
+		throw new Error("Generation is busy. Try again in a moment.")
+	}
+	activeModelRequests += 1
 	try {
 		return await run(DEFAULT_MODEL)
 	} catch (e) {
@@ -32,6 +42,8 @@ export async function withModelFallback<T>(
 			`Model ${DEFAULT_MODEL} failed, retrying with ${fallback}:`,
 			e,
 		)
-		return run(fallback)
+		return await run(fallback)
+	} finally {
+		activeModelRequests -= 1
 	}
 }

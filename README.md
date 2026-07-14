@@ -111,7 +111,7 @@ Studio runs on the Next.js development port and the API runs on port `8787`.
 
 ### Resource defaults
 
-Local development does not poll external connectors unless `CONNECTOR_POLLING=true` is set. Production polling is serialized, so a slow sync cannot overlap the next interval. The Playwright suite uses one worker, owns its temporary API and Studio servers, and disables tracing outside CI to keep laptop CPU, memory, and disk use bounded.
+Local development does not poll external connectors unless `CONNECTOR_POLLING=true` is set. Production polling is serialized, so a slow sync cannot overlap the next interval. Model work is capped at two concurrent requests per API process by default (`MODEL_CONCURRENCY`), preventing bursts of generation from accumulating locally. The Playwright suite uses one worker, owns its temporary API and Studio servers, and disables tracing outside CI to keep laptop CPU, memory, and disk use bounded.
 
 ## Canvas workflow
 
