@@ -9,9 +9,11 @@ import {
 	db,
 	designAssets,
 	documents,
+	artifactRevisions,
+	ideas,
 	mcpTokens,
 } from "@repo/db"
-import { and, eq, gt, isNull, or } from "drizzle-orm"
+import { and, desc, eq, gt, isNull, or } from "drizzle-orm"
 import { Hono } from "hono"
 import { createHash, randomBytes } from "node:crypto"
 import { z } from "zod"
@@ -146,6 +148,34 @@ function serverFor(caller: Caller) {
 				.from(canvasEdges)
 				.where(eq(canvasEdges.canvasId, canvas.id))
 			return jsonContent({ project, canvas, nodes, edges })
+		}),
+	)
+	server.registerTool(
+		"get_artifact",
+		{
+			description:
+				"Read a project artifact and its latest immutable revision, including any validated UI plan.",
+			inputSchema: mcpSchema({ artifactId: z4.string().min(1) }),
+		},
+		mcpHandler(async (args) => {
+			const { artifactId } = z
+				.object({ artifactId: z.string().min(1) })
+				.parse(args)
+			const [artifact] = await db
+				.select()
+				.from(ideas)
+				.where(eq(ideas.id, artifactId))
+				.limit(1)
+			if (!artifact || !(await getVisibleProject(artifact.projectId, caller))) {
+				return jsonContent({ error: "Artifact not found" })
+			}
+			const [revision] = await db
+				.select()
+				.from(artifactRevisions)
+				.where(eq(artifactRevisions.artifactId, artifact.id))
+				.orderBy(desc(artifactRevisions.version))
+				.limit(1)
+			return jsonContent({ artifact, revision: revision ?? null })
 		}),
 	)
 	server.registerTool(
