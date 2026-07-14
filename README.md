@@ -109,6 +109,10 @@ bun run dev
 
 Studio runs on the Next.js development port and the API runs on port `8787`.
 
+### Resource defaults
+
+Local development does not poll external connectors unless `CONNECTOR_POLLING=true` is set. Production polling is serialized, so a slow sync cannot overlap the next interval. The Playwright suite uses one worker, owns its temporary API and Studio servers, and disables tracing outside CI to keep laptop CPU, memory, and disk use bounded.
+
 ## Canvas workflow
 
 Create a project from Studio, then open it to work on its canvas. The board supports knowledge, capture, design-asset, note, frame, and generated-artifact nodes. Connect nodes with typed relationships, select relevant nodes as AI context, and generate a brief, flow, review, specification, or prototype from the composer.

@@ -58,7 +58,11 @@ async function orgsByProvider(provider: "confluence" | "figma") {
 	return rows.map((r) => r.orgId)
 }
 
-setInterval(async () => {
+let polling = false
+
+async function pollConnectors() {
+	if (polling) return
+	polling = true
 	// The whole callback needs to be crash-proof, not just the per-org loop
 	// bodies — a dropped pooled connection on the "list orgs" query itself
 	// (observed against Supabase's free-tier pooler after idle time) was an
@@ -82,8 +86,17 @@ setInterval(async () => {
 		}
 	} catch (e) {
 		console.error("Connector poll cycle failed:", e)
+	} finally {
+		polling = false
 	}
-}, POLL_INTERVAL_MS)
+}
+
+if (
+	process.env.NODE_ENV === "production" ||
+	process.env.CONNECTOR_POLLING === "true"
+) {
+	setInterval(pollConnectors, POLL_INTERVAL_MS)
+}
 
 export default {
 	port: process.env.PORT ? Number(process.env.PORT) : 8787,
