@@ -10,6 +10,7 @@ import { and, asc, eq } from "drizzle-orm"
 import { Hono } from "hono"
 import { z } from "zod"
 import { requireCaller } from "../lib/caller"
+import { canManageOrganization } from "../lib/organization-access"
 import { getVisibleProject } from "../lib/project-access"
 
 export const designSystemsRoute = new Hono()
@@ -45,10 +46,6 @@ export const designManifestSchema = z.object({
 	templates: z.array(assetSchema).max(500).default([]),
 	sourceMappings: z.array(z.string().url()).max(100).default([]),
 })
-
-function canManageDesignSystem(role: string) {
-	return role === "owner" || role === "admin"
-}
 
 designSystemsRoute.get("/design-systems", async (c) => {
 	const caller = await requireCaller(c)
@@ -94,7 +91,7 @@ designSystemsRoute.post(
 	),
 	async (c) => {
 		const caller = await requireCaller(c)
-		if (!canManageDesignSystem(caller.role)) {
+		if (!canManageOrganization(caller.role)) {
 			return c.json({ error: "Design system owner access required" }, 403)
 		}
 		const [designSystem] = await db
@@ -140,7 +137,7 @@ designSystemsRoute.post(
 	),
 	async (c) => {
 		const caller = await requireCaller(c)
-		if (!canManageDesignSystem(caller.role)) {
+		if (!canManageOrganization(caller.role)) {
 			return c.json({ error: "Design system owner access required" }, 403)
 		}
 		const [designSystem] = await db
@@ -221,7 +218,7 @@ designSystemsRoute.post(
 
 designSystemsRoute.post("/design-system-versions/:id/activate", async (c) => {
 	const caller = await requireCaller(c)
-	if (!canManageDesignSystem(caller.role)) {
+	if (!canManageOrganization(caller.role)) {
 		return c.json({ error: "Design system owner access required" }, 403)
 	}
 	const [version] = await db

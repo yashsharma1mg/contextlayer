@@ -127,6 +127,7 @@ interface Workspace {
 		pinnedDesignSystemVersionId: string | null
 		pinnedDesignSystem?: { name: string; version: string } | null
 		canManageProjectSettings?: boolean
+		canManageConnections?: boolean
 		visibility?: "personal" | "team" | "org"
 		teamId?: string | null
 	}
@@ -840,6 +841,9 @@ export function CanvasWorkspace({
 							canManageSettings={
 								workspace.project.canManageProjectSettings ?? false
 							}
+							canManageConnections={
+								workspace.project.canManageConnections ?? false
+							}
 							onNodeAdded={appendNode}
 							onProjectUpdated={load}
 						/>
@@ -1002,12 +1006,14 @@ function ContextPanel({
 	projectId,
 	pinnedVersion,
 	canManageSettings,
+	canManageConnections,
 	onNodeAdded,
 	onProjectUpdated,
 }: {
 	projectId: string
 	pinnedVersion: string | null
 	canManageSettings: boolean
+	canManageConnections: boolean
 	onNodeAdded: (node: WorkspaceNode) => void
 	onProjectUpdated: () => Promise<void>
 }) {
@@ -1026,6 +1032,9 @@ function ContextPanel({
 		figma: false,
 		confluence: false,
 	})
+	const [figmaFileUrl, setFigmaFileUrl] = useState("")
+	const [watchingFigma, setWatchingFigma] = useState(false)
+	const [figmaNotice, setFigmaNotice] = useState<string | null>(null)
 	const loadAssets = useCallback(async () => {
 		const result = await apiGet<{
 			assets: {
@@ -1097,6 +1106,27 @@ function ContextPanel({
 			{},
 		)
 		setCaptureToken(result.token)
+	}
+
+	async function watchFigmaFile(event: React.FormEvent) {
+		event.preventDefault()
+		setWatchingFigma(true)
+		setFigmaNotice(null)
+		try {
+			await apiSend("POST", "/api/connections/figma/watch", {
+				fileUrl: figmaFileUrl,
+			})
+			setFigmaFileUrl("")
+			setFigmaNotice("Figma file registered for the next sync.")
+		} catch (cause) {
+			setError(
+				cause instanceof Error
+					? cause.message
+					: "Could not register Figma file",
+			)
+		} finally {
+			setWatchingFigma(false)
+		}
 	}
 
 	const visibleAssets = assets.filter((asset) =>
@@ -1181,22 +1211,48 @@ function ContextPanel({
 					<span className="text-muted-foreground">
 						Figma {connections.figma ? "connected" : "not connected"}
 					</span>
-					<Button asChild size="xs" variant="outline">
-						<a href={`${API_URL}/api/connections/figma/start`}>
-							{connections.figma ? "Reconnect" : "Connect"}
-						</a>
-					</Button>
+					{canManageConnections && (
+						<Button asChild size="xs" variant="outline">
+							<a href={`${API_URL}/api/connections/figma/start`}>
+								{connections.figma ? "Reconnect" : "Connect"}
+							</a>
+						</Button>
+					)}
 				</div>
 				<div className="flex items-center justify-between gap-2 text-xs">
 					<span className="text-muted-foreground">
 						Confluence {connections.confluence ? "connected" : "not connected"}
 					</span>
-					<Button asChild size="xs" variant="outline">
-						<a href={`${API_URL}/api/connections/confluence/start`}>
-							{connections.confluence ? "Reconnect" : "Connect"}
-						</a>
-					</Button>
+					{canManageConnections && (
+						<Button asChild size="xs" variant="outline">
+							<a href={`${API_URL}/api/connections/confluence/start`}>
+								{connections.confluence ? "Reconnect" : "Connect"}
+							</a>
+						</Button>
+					)}
 				</div>
+				{connections.figma && canManageConnections && (
+					<form onSubmit={watchFigmaFile} className="flex gap-1">
+						<Input
+							type="url"
+							value={figmaFileUrl}
+							onChange={(event) => setFigmaFileUrl(event.target.value)}
+							placeholder="Figma file URL"
+							required
+						/>
+						<Button type="submit" size="xs" disabled={watchingFigma}>
+							Watch
+						</Button>
+					</form>
+				)}
+				{figmaNotice && (
+					<p className="text-[10px] text-muted-foreground">{figmaNotice}</p>
+				)}
+				{!canManageConnections && (
+					<p className="text-[10px] text-muted-foreground">
+						Only organization owners and admins can manage connections.
+					</p>
+				)}
 			</div>
 			<Link
 				href="/projects"

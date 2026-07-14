@@ -256,6 +256,7 @@ canvasRoute.get("/projects/:projectId/canvas", async (c) => {
 			...project,
 			pinnedDesignSystem: pinnedDesignSystem ?? null,
 			canManageProjectSettings: project.ownerUserId === caller.userId,
+			canManageConnections: caller.role === "owner" || caller.role === "admin",
 		},
 		canvas,
 		...(await workspace(canvas.id)),

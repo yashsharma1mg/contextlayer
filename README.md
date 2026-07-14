@@ -133,7 +133,7 @@ bun --cwd apps/capture-extension run build
 
 In a project canvas, open the context drawer and generate a capture token. Enter the API URL, project ID, and token in the extension options. A click on the extension action captures only the active tab. It excludes form values, password fields, hidden inputs, cookies, local storage, authorization headers, and arbitrary page JavaScript; the server applies a second redaction pass before persisting the capture.
 
-The same drawer shows the current Figma and Confluence connection status and starts their organization-scoped OAuth flow. It never starts a sync automatically.
+The same drawer shows the current Figma and Confluence connection status and starts their organization-scoped OAuth flow. Owners and admins can register a read-only Figma file URL for the next sync. It never starts a sync automatically.
 
 ### Design-system manifests
 

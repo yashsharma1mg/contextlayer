@@ -19,6 +19,7 @@ import {
 } from "../lib/figma"
 import { syncAllWatchedFiles, syncFigmaFile } from "../lib/figma-sync"
 import { requireCaller } from "../lib/caller"
+import { canManageOrganization } from "../lib/organization-access"
 import { encryptSecret } from "../lib/secrets"
 
 export const connectionsRoute = new Hono()
@@ -85,6 +86,9 @@ async function getConnectionRow(
 
 connectionsRoute.get("/confluence/start", async (c) => {
 	const caller = await requireCaller(c)
+	if (!canManageOrganization(caller.role)) {
+		return c.json({ error: "Organization owner access required" }, 403)
+	}
 	return c.redirect(
 		getAuthorizeUrl(
 			encodeState({
@@ -102,6 +106,9 @@ connectionsRoute.get(
 	async (c) => {
 		const { code, state } = c.req.valid("query")
 		const caller = await requireCaller(c)
+		if (!canManageOrganization(caller.role)) {
+			return c.json({ error: "Organization owner access required" }, 403)
+		}
 		const { orgId, userId, provider } = decodeState(state)
 		if (
 			provider !== "confluence" ||
@@ -145,6 +152,9 @@ connectionsRoute.get(
 
 connectionsRoute.post("/confluence/sync", async (c) => {
 	const caller = await requireCaller(c)
+	if (!canManageOrganization(caller.role)) {
+		return c.json({ error: "Organization owner access required" }, 403)
+	}
 	return c.json(await syncConfluenceConnection(caller.orgId))
 })
 
@@ -158,6 +168,9 @@ connectionsRoute.get("/confluence/status", async (c) => {
 
 connectionsRoute.get("/figma/start", async (c) => {
 	const caller = await requireCaller(c)
+	if (!canManageOrganization(caller.role)) {
+		return c.json({ error: "Organization owner access required" }, 403)
+	}
 	return c.redirect(
 		getFigmaAuthorizeUrl(
 			encodeState({
@@ -175,6 +188,9 @@ connectionsRoute.get(
 	async (c) => {
 		const { code, state } = c.req.valid("query")
 		const caller = await requireCaller(c)
+		if (!canManageOrganization(caller.role)) {
+			return c.json({ error: "Organization owner access required" }, 403)
+		}
 		const { orgId, userId, provider } = decodeState(state)
 		if (
 			provider !== "figma" ||
@@ -220,6 +236,9 @@ connectionsRoute.post(
 	zValidator("json", z.object({ fileUrl: z.string() })),
 	async (c) => {
 		const caller = await requireCaller(c)
+		if (!canManageOrganization(caller.role)) {
+			return c.json({ error: "Organization owner access required" }, 403)
+		}
 		const { fileUrl } = c.req.valid("json")
 		const orgId = caller.orgId
 		const fileKey = parseFileKey(fileUrl)
@@ -245,6 +264,9 @@ connectionsRoute.post(
 	zValidator("json", z.object({ fileKey: z.string().optional() })),
 	async (c) => {
 		const caller = await requireCaller(c)
+		if (!canManageOrganization(caller.role)) {
+			return c.json({ error: "Organization owner access required" }, 403)
+		}
 		const { fileKey } = c.req.valid("json")
 		const orgId = caller.orgId
 		if (fileKey) return c.json(await syncFigmaFile(orgId, fileKey))
