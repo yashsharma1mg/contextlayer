@@ -377,7 +377,17 @@ canvasRoute.post(
 					},
 				})
 				.returning()
-			return { artifact, node }
+			if (!node) throw new Error("Artifact branch node creation failed")
+			const [edge] = await tx
+				.insert(canvasEdges)
+				.values({
+					canvasId: sourceNode.canvasId,
+					sourceNodeId: sourceNode.id,
+					targetNodeId: node.id,
+					kind: "derived_from",
+				})
+				.returning()
+			return { artifact, node, edge }
 		})
 		return c.json(result, 201)
 	},
