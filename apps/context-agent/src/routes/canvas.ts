@@ -215,6 +215,20 @@ async function workspace(canvasId: string) {
 	return { nodes, edges, comments }
 }
 
+async function visibleArtifact(
+	artifactId: string,
+	caller: Awaited<ReturnType<typeof requireCaller>>,
+) {
+	const [artifact] = await db
+		.select()
+		.from(ideas)
+		.where(eq(ideas.id, artifactId))
+		.limit(1)
+	if (!artifact) return null
+	const project = await getVisibleProject(artifact.projectId, caller)
+	return project ? { artifact, project } : null
+}
+
 canvasRoute.get("/projects/:projectId/canvas", async (c) => {
 	const caller = await requireCaller(c)
 	const project = await getVisibleProject(c.req.param("projectId"), caller)
@@ -222,6 +236,68 @@ canvasRoute.get("/projects/:projectId/canvas", async (c) => {
 	const canvas = await canvasForProject(project.id)
 	return c.json({ project, canvas, ...(await workspace(canvas.id)) })
 })
+
+canvasRoute.get("/artifacts/:id/revisions", async (c) => {
+	const caller = await requireCaller(c)
+	const visible = await visibleArtifact(c.req.param("id"), caller)
+	if (!visible) return c.json({ error: "Artifact not found" }, 404)
+	const revisions = await db
+		.select()
+		.from(artifactRevisions)
+		.where(eq(artifactRevisions.artifactId, visible.artifact.id))
+		.orderBy(desc(artifactRevisions.version))
+	return c.json({ artifact: visible.artifact, revisions })
+})
+
+const artifactEditSchema = z
+	.object({
+		title: z.string().trim().min(1).max(240).optional(),
+		body: z.string().max(100_000).nullable().optional(),
+	})
+	.refine((value) => value.title !== undefined || value.body !== undefined, {
+		message: "Provide a title or body",
+	})
+
+canvasRoute.patch(
+	"/artifacts/:id",
+	zValidator("json", artifactEditSchema),
+	async (c) => {
+		const caller = await requireCaller(c)
+		const visible = await visibleArtifact(c.req.param("id"), caller)
+		if (!visible) return c.json({ error: "Artifact not found" }, 404)
+		const input = c.req.valid("json")
+		const result = await db.transaction(async (tx) => {
+			const [latest] = await tx
+				.select({ version: artifactRevisions.version })
+				.from(artifactRevisions)
+				.where(eq(artifactRevisions.artifactId, visible.artifact.id))
+				.orderBy(desc(artifactRevisions.version))
+				.limit(1)
+			const [artifact] = await tx
+				.update(ideas)
+				.set({ ...input, updatedAt: new Date() })
+				.where(eq(ideas.id, visible.artifact.id))
+				.returning()
+			if (!artifact) throw new Error("Artifact update failed")
+			const [revision] = await tx
+				.insert(artifactRevisions)
+				.values({
+					artifactId: artifact.id,
+					version: (latest?.version ?? 0) + 1,
+					authorUserId: caller.userId,
+					title: artifact.title,
+					content: {
+						body: artifact.body,
+						generatedCode: artifact.generatedCode,
+					},
+					sourceRefs: artifact.sourceRefs ?? [],
+				})
+				.returning()
+			return { artifact, revision }
+		})
+		return c.json(result)
+	},
+)
 
 canvasRoute.get("/shared/:token", async (c) => {
 	const [shareLink] = await db

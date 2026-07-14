@@ -32,6 +32,7 @@ import {
 	MonitorUp,
 	MousePointer2,
 	Paperclip,
+	Pencil,
 	Plus,
 	Send,
 	StickyNote,
@@ -268,7 +269,7 @@ export function CanvasWorkspace({
 	const [mode, setMode] = useState<ArtifactKind>("brief")
 	const [busy, setBusy] = useState(false)
 	const [panel, setPanel] = useState<
-		"context" | "comments" | "history" | "share" | null
+		"context" | "comments" | "history" | "share" | "artifact" | null
 	>(null)
 	const [comment, setComment] = useState("")
 	const [error, setError] = useState<string | null>(null)
@@ -663,6 +664,19 @@ export function CanvasWorkspace({
 								<Layers3 />
 							</Button>
 						</SimpleTooltip>
+						<SimpleTooltip label="Artifact revisions">
+							<Button
+								aria-label="Artifact revisions"
+								variant="ghost"
+								size="icon"
+								onClick={() => {
+									if (selectedRecord?.artifactId) setPanel("artifact")
+									else setError("Select a generated artifact first.")
+								}}
+							>
+								<Pencil />
+							</Button>
+						</SimpleTooltip>
 						<div className="h-6 border-l border-black/10" />
 						<Button
 							size="sm"
@@ -771,6 +785,15 @@ export function CanvasWorkspace({
 						<SharePanel
 							projectId={activeProjectId}
 							visibility={workspace.project.visibility ?? "personal"}
+						/>
+					)}
+					{panel === "artifact" && selectedRecord?.artifactId && (
+						<ArtifactPanel
+							key={selectedRecord.artifactId}
+							artifactId={selectedRecord.artifactId}
+							title={selectedRecord.artifactTitle ?? selectedRecord.label}
+							body={selectedRecord.artifactBody ?? ""}
+							onSaved={load}
 						/>
 					)}
 					{panel === "comments" && (
@@ -993,6 +1016,98 @@ function ContextPanel({
 			>
 				<Plus className="size-3" /> Manage projects
 			</Link>
+		</div>
+	)
+}
+
+function ArtifactPanel({
+	artifactId,
+	title: initialTitle,
+	body: initialBody,
+	onSaved,
+}: {
+	artifactId: string
+	title: string
+	body: string
+	onSaved: () => Promise<void>
+}) {
+	const [title, setTitle] = useState(initialTitle)
+	const [body, setBody] = useState(initialBody)
+	const [revisions, setRevisions] = useState<
+		{ id: string; version: number; title: string; createdAt: string }[]
+	>([])
+	const [busy, setBusy] = useState(false)
+	const [error, setError] = useState<string | null>(null)
+
+	const loadRevisions = useCallback(async () => {
+		const result = await apiGet<{
+			revisions: {
+				id: string
+				version: number
+				title: string
+				createdAt: string
+			}[]
+		}>(`/api/artifacts/${artifactId}/revisions`)
+		setRevisions(result.revisions)
+	}, [artifactId])
+
+	useEffect(() => {
+		loadRevisions().catch((cause) =>
+			setError(
+				cause instanceof Error ? cause.message : "Could not load versions",
+			),
+		)
+	}, [loadRevisions])
+
+	async function save(event: React.FormEvent) {
+		event.preventDefault()
+		setBusy(true)
+		setError(null)
+		try {
+			await apiSend("PATCH", `/api/artifacts/${artifactId}`, { title, body })
+			await Promise.all([onSaved(), loadRevisions()])
+		} catch (cause) {
+			setError(
+				cause instanceof Error ? cause.message : "Could not save artifact",
+			)
+		} finally {
+			setBusy(false)
+		}
+	}
+
+	return (
+		<div className="space-y-4">
+			<form onSubmit={save} className="space-y-3">
+				<Input
+					value={title}
+					onChange={(event) => setTitle(event.target.value)}
+					placeholder="Artifact title"
+				/>
+				<textarea
+					value={body}
+					onChange={(event) => setBody(event.target.value)}
+					className="min-h-44 w-full resize-y rounded-md border border-input bg-background p-2 text-xs leading-5"
+					placeholder="Artifact content"
+				/>
+				<Button type="submit" size="sm" disabled={busy || !title.trim()}>
+					{busy ? "Saving" : "Save revision"}
+				</Button>
+			</form>
+			<div className="space-y-2 border-t border-border pt-4">
+				<p className="text-xs font-medium">Version history</p>
+				{revisions.map((revision) => (
+					<div key={revision.id} className="rounded border border-border p-2">
+						<p className="text-xs font-medium">v{revision.version}</p>
+						<p className="truncate text-[11px] text-muted-foreground">
+							{revision.title}
+						</p>
+						<p className="mt-0.5 text-[10px] text-muted-foreground">
+							{new Date(revision.createdAt).toLocaleString()}
+						</p>
+					</div>
+				))}
+			</div>
+			{error && <p className="text-xs text-red-600">{error}</p>}
 		</div>
 	)
 }
