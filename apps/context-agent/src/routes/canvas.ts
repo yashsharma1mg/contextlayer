@@ -28,6 +28,7 @@ import { generateUi } from "../lib/generate-ui"
 import { artifactKinds, resolveArtifactKind } from "../lib/generation-routing"
 import { openrouter, withModelFallback } from "../lib/openrouter"
 import { getVisibleProject } from "../lib/project-access"
+import { reactSourceFromUiPlan } from "../lib/react-source"
 import { searchMemories } from "../lib/search"
 import { type UiPlan, uiPlanSchema, validateUiPlan } from "../lib/ui-plan"
 
@@ -1065,6 +1066,7 @@ canvasRoute.post(
 			? await db
 					.select({
 						id: canvasNodes.id,
+						artifactId: canvasNodes.artifactId,
 						label: canvasNodes.label,
 						data: canvasNodes.data,
 						artifactBody: ideas.body,
@@ -1116,6 +1118,7 @@ canvasRoute.post(
 		let title: string
 		let body: string | null
 		let generatedCode: string | null = null
+		let codeFormat: "html" | "tsx" | undefined
 		let uiPlan: UiPlan | undefined
 		if (kind === "react_prototype") {
 			const approvedAssets = project.pinnedDesignSystemVersionId
@@ -1123,6 +1126,10 @@ canvasRoute.post(
 						.select({
 							name: designAssets.name,
 							description: designAssets.description,
+							kind: designAssets.kind,
+							data: designAssets.data,
+							importPath: designAssets.importPath,
+							exportName: designAssets.exportName,
 						})
 						.from(designAssets)
 						.where(
@@ -1130,13 +1137,49 @@ canvasRoute.post(
 						)
 						.limit(80)
 				: []
-			title = input.prompt.slice(0, 80)
-			body = "React prototype grounded in selected product context."
-			generatedCode = await generateUi(
-				`${input.prompt}\n\nSelected canvas context:\n${selectedContext}`,
-				grounding,
-				approvedAssets,
+			const artifactIds = selected.flatMap((node) =>
+				node.artifactId ? [node.artifactId] : [],
 			)
+			const revisions = artifactIds.length
+				? await db
+						.select({ generationInput: artifactRevisions.generationInput })
+						.from(artifactRevisions)
+						.where(inArray(artifactRevisions.artifactId, artifactIds))
+						.orderBy(desc(artifactRevisions.version))
+				: []
+			const selectedPlan = revisions
+				.map((revision) =>
+					uiPlanSchema.safeParse(
+						(revision.generationInput as { uiPlan?: unknown } | null)?.uiPlan,
+					),
+				)
+				.find((result) => result.success)
+			title = input.prompt.slice(0, 80)
+			if (selectedPlan?.success) {
+				uiPlan = selectedPlan.data
+				body = "React source generated from the selected validated UI plan."
+				generatedCode = reactSourceFromUiPlan(
+					selectedPlan.data,
+					approvedAssets.map((asset) => ({
+						name: asset.name,
+						kind: asset.kind,
+						data: {
+							...asset.data,
+							importPath: asset.importPath,
+							exportName: asset.exportName,
+						},
+					})),
+				)
+				codeFormat = "tsx"
+			} else {
+				body = "Sandboxed HTML prototype grounded in selected product context."
+				generatedCode = await generateUi(
+					`${input.prompt}\n\nSelected canvas context:\n${selectedContext}`,
+					grounding,
+					approvedAssets,
+				)
+				codeFormat = "html"
+			}
 		} else if (kind === "interface_spec") {
 			const approvedAssets = project.pinnedDesignSystemVersionId
 				? await db
@@ -1227,7 +1270,7 @@ canvasRoute.post(
 					y: 120 + input.selectedNodeIds.length * 36,
 					width: kind === "react_prototype" ? 520 : 380,
 					height: kind === "react_prototype" ? 460 : 280,
-					data: { artifactKind: kind },
+					data: { artifactKind: kind, codeFormat },
 				})
 				.returning()
 			return { idea, node }

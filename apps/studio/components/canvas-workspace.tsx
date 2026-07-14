@@ -153,6 +153,7 @@ type CanvasFlowNode = Node<CanvasCardData, "context">
 function CanvasCard({ data, selected }: NodeProps<CanvasFlowNode>) {
 	const record = data.record
 	const isPrototype = Boolean(record.artifactCode)
+	const isReactSource = record.data.codeFormat === "tsx"
 	const tone =
 		record.kind === "capture"
 			? "border-orange-200 bg-orange-50"
@@ -196,7 +197,11 @@ function CanvasCard({ data, selected }: NodeProps<CanvasFlowNode>) {
 				)}
 			</div>
 			<div className="nodrag h-[calc(100%-3.2rem)] overflow-auto p-3">
-				{isPrototype ? (
+				{isReactSource ? (
+					<pre className="h-full overflow-auto whitespace-pre-wrap rounded border border-black/10 bg-slate-950 p-3 font-mono text-[10px] leading-4 text-slate-100">
+						{record.artifactCode}
+					</pre>
+				) : isPrototype ? (
 					<iframe
 						title={record.label}
 						sandbox=""
