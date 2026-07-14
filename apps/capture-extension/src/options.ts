@@ -8,6 +8,7 @@ const fields = {
 	apiUrl: requiredElement<HTMLInputElement>("#apiUrl"),
 	projectId: requiredElement<HTMLInputElement>("#projectId"),
 	captureToken: requiredElement<HTMLInputElement>("#captureToken"),
+	resetFlow: requiredElement<HTMLButtonElement>("#resetFlow"),
 	status: requiredElement<HTMLElement>("#status"),
 }
 
@@ -47,5 +48,15 @@ requiredElement<HTMLButtonElement>("#save").addEventListener(
 		}
 	},
 )
+
+fields.resetFlow.addEventListener("click", async () => {
+	const projectId = fields.projectId.value.trim()
+	if (!projectId) {
+		fields.status.textContent = "Enter a project ID before starting a new flow."
+		return
+	}
+	await chrome.storage.local.remove(`previousCapture:${projectId}`)
+	fields.status.textContent = "The next capture starts a new flow."
+})
 
 load().catch(() => undefined)
