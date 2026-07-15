@@ -1,0 +1,17 @@
+[package]
+name = "context-layer-desktop"
+version = "0.1.0"
+description = "Local-first Context Layer desktop runtime"
+authors = ["Context Layer"]
+edition = "2021"
+
+[lib]
+name = "context_layer_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+rand = "0.9"
+tauri = { version = "2", features = [] }

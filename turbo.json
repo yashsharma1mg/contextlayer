@@ -1,0 +1,40 @@
+{
+	"$schema": "https://turborepo.com/schema.json",
+	"ui": "tui",
+	"tasks": {
+		"build": {
+			"dependsOn": ["^build"],
+			"inputs": ["$TURBO_DEFAULT$", ".env*"],
+			"outputs": [".next/**", "!.next/cache/**", "dist/**"]
+		},
+		"context-layer-desktop#build": {
+			"dependsOn": ["studio#build", "context-agent#build"],
+			"inputs": ["$TURBO_DEFAULT$", ".env*"],
+			"cache": false
+		},
+		"lint": {
+			"dependsOn": ["^lint"]
+		},
+		"check-types": {
+			"dependsOn": ["^check-types"]
+		},
+		"test": {
+			"dependsOn": ["^test"],
+			"env": [
+				"DATABASE_URL",
+				"BETTER_AUTH_SECRET",
+				"BETTER_AUTH_URL",
+				"STUDIO_URL",
+				"CONNECTION_ENCRYPTION_KEY"
+			]
+		},
+		"dev": {
+			"cache": false,
+			"persistent": true
+		},
+		"dev:app": {
+			"cache": false,
+			"persistent": true
+		}
+	}
+}

@@ -1,0 +1,1 @@
+CREATE INDEX "memory_chunks_fts_idx" ON "memory_chunks" USING gin (to_tsvector('english', "content"));

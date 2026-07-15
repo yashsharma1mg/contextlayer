@@ -1,0 +1,19 @@
+{
+	"manifest_version": 3,
+	"name": "Context Layer Capture",
+	"version": "0.0.0",
+	"description": "Capture product screens and flows into Context Layer.",
+	"permissions": ["activeTab", "scripting", "storage"],
+	"optional_host_permissions": ["http://*/*", "https://*/*"],
+	"background": {
+		"service_worker": "service-worker.js",
+		"type": "module"
+	},
+	"action": {
+		"default_title": "Capture to Context Layer"
+	},
+	"options_ui": {
+		"page": "options.html",
+		"open_in_tab": true
+	}
+}
