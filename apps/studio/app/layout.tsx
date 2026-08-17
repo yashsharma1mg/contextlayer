@@ -11,7 +11,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
 	title: "Context Layer",
-	description: "Org-wide context and memory, searchable in one place.",
+	description:
+		"Local-first canvas for turning your design system into production UI.",
 }
 
 export default function RootLayout({

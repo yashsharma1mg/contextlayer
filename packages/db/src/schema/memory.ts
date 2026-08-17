@@ -116,6 +116,14 @@ export const memoryChunks = pgTable(
 			"gin",
 			sql`to_tsvector('english', ${table.content})`,
 		),
+		// Without this, pgvector falls back to a sequential scan on every
+		// search. HNSW rather than IVFFlat because IVFFlat has to train its
+		// lists on existing rows, and a fresh local install has none.
+		// Opclass must match the distance operator in lib/search.ts (`<=>`).
+		index("memory_chunks_embedding_hnsw_idx").using(
+			"hnsw",
+			sql`${table.embedding} vector_cosine_ops`,
+		),
 	],
 )
 
