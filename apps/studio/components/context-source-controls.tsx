@@ -59,26 +59,49 @@ const emptyConnections = Object.fromEntries(
 	]),
 ) as Record<Provider, ConnectionStatus>
 
-const consentOptions = [
-	{
-		provider: "nvidia",
-		label: "NVIDIA",
-		purposes: ["embeddings"],
-		boundary: "Text chunks for semantic embeddings",
-	},
-	{
-		provider: "openrouter",
-		label: "OpenRouter",
-		purposes: ["generation", "media"],
-		boundary: "Selected context and images for generation",
-	},
-	{
-		provider: "openai",
-		label: "OpenAI",
-		purposes: ["media"],
-		boundary: "Selected audio for transcription",
-	},
-] as const
+interface ActiveProvider {
+	id: string
+	remote: boolean
+	purposes: string[]
+	boundary: string
+}
+
+interface ActiveProviders {
+	chat: ActiveProvider | null
+	embeddings: ActiveProvider | null
+	media: ActiveProvider | null
+}
+
+const PROVIDER_LABELS: Record<string, string> = {
+	anthropic: "Anthropic",
+	openai: "OpenAI",
+	openrouter: "OpenRouter",
+	nvidia: "NVIDIA",
+	local: "Local",
+}
+
+const providerLabel = (id: string) => PROVIDER_LABELS[id] ?? id
+
+/**
+ * One consent row per remote provider actually in use. A provider can serve
+ * more than one capability (OpenRouter doing both generation and media), so
+ * purposes are merged rather than producing a duplicate row.
+ */
+function consentRows(active: ActiveProviders | null) {
+	if (!active) return []
+	const merged = new Map<string, ActiveProvider>()
+	for (const entry of [active.chat, active.embeddings, active.media]) {
+		if (!entry?.remote) continue
+		const existing = merged.get(entry.id)
+		if (!existing) {
+			merged.set(entry.id, { ...entry })
+			continue
+		}
+		existing.purposes = [...new Set([...existing.purposes, ...entry.purposes])]
+		existing.boundary = `${existing.boundary}; ${entry.boundary}`
+	}
+	return [...merged.values()]
+}
 
 export function ProviderConsentControls({ canManage }: { canManage: boolean }) {
 	const [enabled, setEnabled] = useState<Record<string, boolean>>({})
@@ -88,6 +111,7 @@ export function ProviderConsentControls({ canManage }: { canManage: boolean }) {
 		{ name: string; size: number; createdAt: string }[]
 	>([])
 	const [backupBusy, setBackupBusy] = useState(false)
+	const [active, setActive] = useState<ActiveProviders | null>(null)
 
 	const load = useCallback(async () => {
 		const result = await apiGet<{
@@ -105,6 +129,9 @@ export function ProviderConsentControls({ canManage }: { canManage: boolean }) {
 
 	useEffect(() => {
 		load().catch(() => undefined)
+		apiGet<ActiveProviders>("/api/privacy/providers")
+			.then(setActive)
+			.catch(() => undefined)
 		if (canManage) {
 			apiGet<{ backups: { name: string; size: number; createdAt: string }[] }>(
 				"/api/privacy/backups",
@@ -151,21 +178,18 @@ export function ProviderConsentControls({ canManage }: { canManage: boolean }) {
 		}
 	}
 
-	async function toggle(
-		option: (typeof consentOptions)[number],
-		checked: boolean,
-	) {
-		setBusy(option.provider)
+	async function toggle(option: ActiveProvider, checked: boolean) {
+		setBusy(option.id)
 		setError(null)
 		try {
 			if (checked) {
-				await apiSend("PUT", `/api/privacy/consents/${option.provider}`, {
+				await apiSend("PUT", `/api/privacy/consents/${option.id}`, {
 					purposes: [...option.purposes],
 				})
 			} else {
-				await apiDelete(`/api/privacy/consents/${option.provider}`)
+				await apiDelete(`/api/privacy/consents/${option.id}`)
 			}
-			setEnabled((current) => ({ ...current, [option.provider]: checked }))
+			setEnabled((current) => ({ ...current, [option.id]: checked }))
 		} catch (cause) {
 			setError(cause instanceof Error ? cause.message : "Consent update failed")
 		} finally {
@@ -173,23 +197,22 @@ export function ProviderConsentControls({ canManage }: { canManage: boolean }) {
 		}
 	}
 
+	const rows = consentRows(active)
+
 	return (
 		<section className="space-y-2 border-t border-border pt-3">
 			<p className="text-xs font-medium">Remote AI data boundaries</p>
-			{consentOptions.map((option) => (
-				<label
-					key={option.provider}
-					className="flex items-start gap-2 py-1 text-xs"
-				>
+			{rows.map((option) => (
+				<label key={option.id} className="flex items-start gap-2 py-1 text-xs">
 					<input
 						type="checkbox"
 						className="mt-0.5 size-3.5 accent-blue-600"
-						checked={enabled[option.provider] ?? false}
-						disabled={busy === option.provider}
+						checked={enabled[option.id] ?? false}
+						disabled={busy === option.id}
 						onChange={(event) => toggle(option, event.target.checked)}
 					/>
 					<span>
-						<span className="font-medium">{option.label}</span>
+						<span className="font-medium">{providerLabel(option.id)}</span>
 						<span className="block text-[10px] text-muted-foreground">
 							{option.boundary}
 						</span>
@@ -197,8 +220,9 @@ export function ProviderConsentControls({ canManage }: { canManage: boolean }) {
 				</label>
 			))}
 			<p className="text-[10px] text-muted-foreground">
-				Workspace originals remain on this Mac. Only the boundary shown above is
-				sent.
+				{rows.length === 0
+					? "Every configured model runs on this Mac. Nothing is sent anywhere."
+					: "Workspace originals remain on this Mac. Only the boundary shown above is sent."}
 			</p>
 			{error && <p className="text-[10px] text-red-600">{error}</p>}
 			{canManage && (

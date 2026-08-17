@@ -1,6 +1,6 @@
 import { generateObject } from "ai"
 import { z } from "zod"
-import { openrouter, withModelFallback } from "./openrouter"
+import { withModelFallback } from "./providers"
 
 const classificationSchema = z.object({
 	chunks: z.array(z.object({ index: z.number(), signal: z.boolean() })),
@@ -26,7 +26,7 @@ export async function signalChunkIndexes(chunks: string[]): Promise<number[]> {
 	try {
 		const { object } = await withModelFallback((model) =>
 			generateObject({
-				model: openrouter.chat(model),
+				model,
 				schema: classificationSchema,
 				system:
 					"You are a signal-vs-noise filter for a knowledge base ingestion pipeline. For each numbered chunk, decide whether it contains real, useful information (signal) or is boilerplate, navigation text, empty filler, or a near-duplicate of another chunk (noise). Err toward keeping content when uncertain — only mark something noise if it's clearly not worth anyone searching for.",

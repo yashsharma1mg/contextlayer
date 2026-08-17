@@ -21,8 +21,8 @@ import { requireCaller } from "../lib/caller"
 import { syncProjectCaptureGrants } from "../lib/capture-ingestion"
 import { generateUi } from "../lib/generate-ui"
 import { isRepositoryPath } from "../lib/github-publication"
-import { openrouter, withModelFallback } from "../lib/openrouter"
-import { requireProviderConsent } from "../lib/provider-consent"
+import { withModelFallback } from "../lib/providers"
+import { requireGenerationConsent } from "../lib/provider-consent"
 import {
 	getProjectAccess,
 	getVisibleProject,
@@ -468,11 +468,9 @@ ideasRoute.post(
 			return c.json({ error: "Project editor access required" }, 403)
 		}
 		const project = access.project
-		await requireProviderConsent({
+		await requireGenerationConsent({
 			orgId: caller.orgId,
 			userId: caller.userId,
-			provider: "openrouter",
-			purpose: "generation",
 		})
 
 		const grounding = await searchMemories({
@@ -489,7 +487,7 @@ ideasRoute.post(
 
 		const { object: concept } = await withModelFallback((model) =>
 			generateObject({
-				model: openrouter.chat(model),
+				model,
 				schema: conceptSchema,
 				system:
 					"You are a product design partner. Ground the concept in supplied evidence. Cover the primary flow plus empty, loading, error, validation, permission, quota, retry, and recovery states when relevant. Be concrete and call out missing decisions.",
@@ -522,11 +520,9 @@ ideasRoute.post("/ideas/ui", zValidator("json", generateSchema), async (c) => {
 		return c.json({ error: "Project editor access required" }, 403)
 	}
 	const project = access.project
-	await requireProviderConsent({
+	await requireGenerationConsent({
 		orgId: caller.orgId,
 		userId: caller.userId,
-		provider: "openrouter",
-		purpose: "generation",
 	})
 	const grounding = await searchMemories({
 		q: body.prompt,

@@ -8,9 +8,47 @@ import { homedir } from "node:os"
 import { basename, join } from "node:path"
 import { z } from "zod"
 import { requireCaller } from "../lib/caller"
+import { activeEmbedProvider, embedProviderIsRemote } from "../lib/embeddings"
 import { canManageOrganization } from "../lib/organization-access"
+import { chatProviderIsRemote, resolveChatProvider } from "../lib/providers"
 
 export const privacyRoute = new Hono()
+
+/**
+ * Which providers are actually in play, so the consent UI can ask about those
+ * rather than a hardcoded list. A local provider reports remote:false and needs
+ * no consent toggle at all.
+ */
+privacyRoute.get("/providers", async (c) => {
+	await requireCaller(c)
+	const chat = resolveChatProvider()
+	const embeddings = activeEmbedProvider()
+	return c.json({
+		chat: chat && {
+			id: chat,
+			remote: chatProviderIsRemote(),
+			purposes: ["generation"],
+			boundary: "Selected context for generation",
+		},
+		embeddings: embeddings && {
+			id: embeddings,
+			remote: embedProviderIsRemote(),
+			purposes: ["embeddings"],
+			boundary: "Text chunks for semantic embeddings",
+		},
+		// Image description and transcription still route through OpenRouter
+		// directly in lib/extract-text.ts; reported here so consent stays honest.
+		media: process.env.OPENROUTER_API_KEY
+			? {
+					id: "openrouter",
+					remote: true,
+					purposes: ["media"],
+					boundary:
+						"Selected images and audio for description or transcription",
+				}
+			: null,
+	})
+})
 
 const dataDirectory = () =>
 	process.env.CONTEXT_LAYER_DATA_DIR ??

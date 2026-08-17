@@ -3,7 +3,7 @@ import { Hono } from "hono"
 import { z } from "zod"
 import { answerFromContext } from "../lib/chat"
 import { requireCaller } from "../lib/caller"
-import { requireProviderConsent } from "../lib/provider-consent"
+import { requireGenerationConsent } from "../lib/provider-consent"
 import { searchMemories } from "../lib/search"
 
 export const askRoute = new Hono()
@@ -15,11 +15,9 @@ const askSchema = z.object({
 
 askRoute.post("/", zValidator("json", askSchema), async (c) => {
 	const caller = await requireCaller(c)
-	await requireProviderConsent({
+	await requireGenerationConsent({
 		orgId: caller.orgId,
 		userId: caller.userId,
-		provider: "openrouter",
-		purpose: "generation",
 	})
 	const { q, limit } = c.req.valid("json")
 	const sources = await searchMemories({ q, limit, ...caller })

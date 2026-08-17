@@ -1,5 +1,5 @@
 import { generateText } from "ai"
-import { openrouter, withModelFallback } from "./openrouter"
+import { withModelFallback } from "./providers"
 import type { SearchResult } from "./search"
 
 const SYSTEM_PROMPT = `You generate a single, complete, self-contained HTML file for a UI mockup.
@@ -38,7 +38,7 @@ export async function generateUi(
 
 	const { text } = await withModelFallback((model) =>
 		generateText({
-			model: openrouter.chat(model),
+			model,
 			system: SYSTEM_PROMPT,
 			prompt: `${prompt}${context}${designContext}`,
 		}),

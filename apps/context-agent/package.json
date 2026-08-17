@@ -10,6 +10,7 @@
 		"check-types": "tsc --noEmit"
 	},
 	"dependencies": {
+		"@ai-sdk/anthropic": "^2",
 		"@ai-sdk/openai": "^2.0.42",
 		"@better-auth/drizzle-adapter": "^1.5.3",
 		"@better-auth/oauth-provider": "1.5.3",

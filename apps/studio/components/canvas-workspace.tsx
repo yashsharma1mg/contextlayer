@@ -168,6 +168,53 @@ function previewDocument(html: string) {
 	)
 }
 
+const PROVIDER_LABELS: Record<string, string> = {
+	anthropic: "Anthropic",
+	openai: "OpenAI",
+	openrouter: "OpenRouter",
+	nvidia: "NVIDIA",
+	local: "A local model",
+}
+
+/**
+ * Describes exactly what leaves the machine before the user hits generate.
+ * A local provider needs no consent and sends nothing, so it reads as a
+ * reassurance rather than a warning.
+ */
+function describeGenerationBoundary(
+	active: {
+		chat: { id: string; remote: boolean } | null
+		embeddings: { id: string; remote: boolean } | null
+	} | null,
+	consents: Set<string>,
+	selectedCount: number,
+) {
+	const chat = active?.chat
+	const embeddings = active?.embeddings
+	const nodes = `${selectedCount} selected node${selectedCount === 1 ? "" : "s"}`
+
+	const label = (id: string) => PROVIDER_LABELS[id] ?? id
+
+	let generation: string
+	if (!chat) {
+		generation = "No model is configured, so generation is unavailable."
+	} else if (!chat.remote) {
+		generation = `${label(chat.id)} runs on this Mac; this prompt and ${nodes} stay here.`
+	} else if (consents.has(chat.id)) {
+		generation = `${label(chat.id)} receives this prompt, ${nodes}, and retrieved excerpts.`
+	} else {
+		generation =
+			"Remote generation is off; no selected context leaves this Mac."
+	}
+
+	const search =
+		embeddings?.remote && consents.has(embeddings.id)
+			? ` ${label(embeddings.id)} receives the search query.`
+			: ""
+
+	return `${generation}${search}`
+}
+
 type CanvasFlowNode = Node<CanvasCardData, "context">
 
 function CanvasCard({ data, selected }: NodeProps<CanvasFlowNode>) {
@@ -359,6 +406,10 @@ export function CanvasWorkspace({
 	const [providerConsents, setProviderConsents] = useState<Set<string>>(
 		new Set(),
 	)
+	const [activeProviders, setActiveProviders] = useState<{
+		chat: { id: string; remote: boolean } | null
+		embeddings: { id: string; remote: boolean } | null
+	} | null>(null)
 	const inputRef = useRef<HTMLInputElement>(null)
 	const activeProjectId = workspace?.project.id ?? projectId ?? ""
 
@@ -394,6 +445,10 @@ export function CanvasWorkspace({
 					),
 				),
 			),
+			apiGet<{
+				chat: { id: string; remote: boolean } | null
+				embeddings: { id: string; remote: boolean } | null
+			}>("/api/privacy/providers").then(setActiveProviders),
 		]).catch(() => undefined)
 	}, [activeProjectId, isReadOnly])
 
@@ -1117,11 +1172,10 @@ export function CanvasWorkspace({
 					</div>
 					<div className="mt-2 flex items-center gap-1.5 border-t border-border pt-2 text-[10px] text-muted-foreground">
 						<ShieldCheck className="size-3 text-emerald-600" />
-						{providerConsents.has("openrouter")
-							? `OpenRouter receives this prompt, ${selectedNodeIds.length} selected node${selectedNodeIds.length === 1 ? "" : "s"}, and retrieved excerpts.`
-							: "Remote generation is off; no selected context leaves this Mac."}
-						{providerConsents.has("nvidia") && (
-							<span> NVIDIA receives the search query.</span>
+						{describeGenerationBoundary(
+							activeProviders,
+							providerConsents,
+							selectedNodeIds.length,
 						)}
 					</div>
 				</form>

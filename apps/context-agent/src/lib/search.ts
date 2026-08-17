@@ -2,7 +2,7 @@ import { db, documents, memoryChunks } from "@repo/db"
 import { and, eq, isNotNull, sql } from "drizzle-orm"
 import { documentVisibility } from "./access-policy"
 import { embedQuery } from "./embeddings"
-import { hasProviderConsent } from "./provider-consent"
+import { canUseEmbeddings } from "./provider-consent"
 
 export interface SearchParams {
 	q: string
@@ -60,14 +60,7 @@ export async function searchMemories({
 	userId,
 	limit,
 }: SearchParams): Promise<SearchResult[]> {
-	const canUseSemantic =
-		!!process.env.NVIDIA_API_KEY &&
-		(await hasProviderConsent({
-			orgId,
-			userId,
-			provider: "nvidia",
-			purpose: "embeddings",
-		}))
+	const canUseSemantic = await canUseEmbeddings({ orgId, userId })
 	const queryEmbedding = canUseSemantic ? await embedQuery(q) : null
 	const vectorLiteral = queryEmbedding ? `[${queryEmbedding.join(",")}]` : null
 

@@ -1,5 +1,5 @@
 import { generateText } from "ai"
-import { openrouter, withModelFallback } from "./openrouter"
+import { withModelFallback } from "./providers"
 import { provenanceLabel, type SearchResult } from "./search"
 
 export async function answerFromContext(
@@ -17,7 +17,7 @@ export async function answerFromContext(
 	// Responses API that @ai-sdk/openai defaults to — .chat() forces the former.
 	const { text } = await withModelFallback((model) =>
 		generateText({
-			model: openrouter.chat(model),
+			model,
 			system:
 				"Answer the question using only the provided context. Cite sources by their [n] marker. If the context doesn't contain the answer, say so plainly.",
 			prompt: `Context:\n${context}\n\nQuestion: ${question}`,

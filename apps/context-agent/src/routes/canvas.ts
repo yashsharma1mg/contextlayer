@@ -27,7 +27,7 @@ import { createHash, randomBytes } from "node:crypto"
 import { requireCaller } from "../lib/caller"
 import { documentVisibility } from "../lib/access-policy"
 import { artifactKinds, resolveArtifactKind } from "../lib/generation-routing"
-import { openrouter, withModelFallback } from "../lib/openrouter"
+import { withModelFallback } from "../lib/providers"
 import { getProjectAccess, projectRoleAllows } from "../lib/project-access"
 import { reactFilesFromUiPlan } from "../lib/react-source"
 import { searchMemories } from "../lib/search"
@@ -1499,7 +1499,7 @@ canvasRoute.post(
 				: []
 			const { object } = await withModelFallback((model) =>
 				generateObject({
-					model: openrouter.chat(model),
+					model,
 					schema: uiPlanSchema,
 					system:
 						"Create an evidence-grounded UI plan pinned to the supplied manifest version. Use only approved asset IDs, component IDs, props, variants, and tokens. Explicitly cover permission, loading, empty, validation, error, retry, quota, and recovery states. Cite supplied document IDs.",
@@ -1533,7 +1533,7 @@ canvasRoute.post(
 		} else {
 			const { object } = await withModelFallback((model) =>
 				generateObject({
-					model: openrouter.chat(model),
+					model,
 					schema: structuredArtifactSchema,
 					system:
 						"You are a product design collaborator. Produce a practical, evidence-grounded artifact. Always address missing requirements, permissions, loading, empty, error, validation, retry, quota, and recovery states where relevant.",

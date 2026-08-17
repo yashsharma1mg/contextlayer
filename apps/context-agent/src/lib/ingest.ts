@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm"
 import { chunkText } from "./chunking"
 import { embedPassages } from "./embeddings"
 import { signalChunkIndexes } from "./understand"
-import { hasProviderConsent } from "./provider-consent"
+import { canUseEmbeddings, canUseGeneration } from "./provider-consent"
 
 export interface IngestSection {
 	text: string
@@ -53,28 +53,20 @@ export async function ingestDocument(input: IngestInput) {
 				content,
 				provenance: {},
 			}))
-	const canFilter =
-		!!process.env.OPENROUTER_API_KEY &&
-		(await hasProviderConsent({
-			orgId: input.orgId,
-			userId: input.consentUserId,
-			provider: "openrouter",
-			purpose: "generation",
-		}))
+	const canFilter = await canUseGeneration({
+		orgId: input.orgId,
+		userId: input.consentUserId,
+	})
 	const signalIndexes = canFilter
 		? await signalChunkIndexes(chunks.map(({ content }) => content))
 		: chunks.map((_, index) => index)
 	const signalChunks = signalIndexes.map(
 		(index) => chunks[index] as (typeof chunks)[number],
 	)
-	const canEmbed =
-		!!process.env.NVIDIA_API_KEY &&
-		(await hasProviderConsent({
-			orgId: input.orgId,
-			userId: input.consentUserId,
-			provider: "nvidia",
-			purpose: "embeddings",
-		}))
+	const canEmbed = await canUseEmbeddings({
+		orgId: input.orgId,
+		userId: input.consentUserId,
+	})
 	let embeddings: number[][] | null = null
 	if (canEmbed && signalChunks.length > 0) {
 		try {
