@@ -1,0 +1,16 @@
+{
+	"$schema": "../gen/schemas/desktop-schema.json",
+	"identifier": "hud",
+	"description": "HUD window. Served from the local Studio origin rather than tauri:// so it carries the Better Auth session cookie the API requires; that makes it a remote window as far as Tauri is concerned, so the origin has to be granted explicitly.",
+	"windows": ["hud"],
+	"remote": {
+		"urls": ["http://127.0.0.1:31420/*"]
+	},
+	"permissions": [
+		"core:default",
+		"core:window:allow-set-focus",
+		"core:window:allow-show",
+		"core:window:allow-hide",
+		"core:event:allow-listen"
+	]
+}

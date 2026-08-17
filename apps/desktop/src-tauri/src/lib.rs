@@ -9,7 +9,9 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use tauri::{Manager, RunEvent};
+use tauri::{Emitter, Manager, RunEvent};
+
+mod hud;
 
 struct Runtime {
     children: Arc<Mutex<Vec<Child>>>,
@@ -452,6 +454,30 @@ fn launch(app: &tauri::AppHandle, children: Arc<Mutex<Vec<Child>>>) -> Result<()
     wait_for_port(31420, Duration::from_secs(45))
 }
 
+/// Summons the HUD on a plain chord.
+///
+/// A listen-only CGEvent tap would be needed for a modifier-only chord like
+/// ctrl+option, and would drag in an Accessibility permission prompt plus tap
+/// self-healing. A normal chord goes through the plugin instead, so the app
+/// needs no Accessibility grant at all.
+fn register_hud_shortcut(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+
+    let summon = Shortcut::new(Some(Modifiers::ALT), Code::Space);
+    let handle = app.clone();
+    app.global_shortcut().on_shortcut(summon, move |_, _, event| {
+        // Fire on press only; the release event would immediately re-toggle.
+        if event.state() != ShortcutState::Pressed {
+            return;
+        }
+        if let Some(window) = handle.get_webview_window("hud") {
+            hud::focus(&window);
+            let _ = window.emit("hud://focus", ());
+        }
+    })?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let children = Arc::new(Mutex::new(Vec::<Child>::new()));
@@ -460,6 +486,12 @@ pub fn run() {
     };
     let app = tauri::Builder::default()
         .manage(runtime)
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .invoke_handler(tauri::generate_handler![
+            hud::hud_expand,
+            hud::hud_collapse,
+            hud::hud_dismiss
+        ])
         .setup(move |app| {
             let handle = app.handle().clone();
             let children = children.clone();
@@ -470,6 +502,10 @@ pub fn run() {
                     handle.exit(1);
                 }
             });
+            if let Some(window) = app.get_webview_window("hud") {
+                hud::init(&window);
+            }
+            register_hud_shortcut(app.handle())?;
             Ok(())
         })
         .build(tauri::generate_context!())

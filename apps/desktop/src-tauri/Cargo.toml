@@ -14,4 +14,22 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 rand = "0.9"
-tauri = { version = "2", features = [] }
+# macos-private-api is what allows a transparent window; the HUD paints its own
+# rounded background and must not sit on an opaque system-drawn one.
+tauri = { version = "2", features = ["macos-private-api"] }
+tauri-plugin-global-shortcut = "2"
+
+# The HUD needs window level, collection behavior, and notch geometry, none of
+# which Tauri exposes. objc2-app-kit covers all three, so the panel is set up
+# directly rather than pulling in a git-only NSPanel wrapper for one of them.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSGeometry"] }
+objc2-app-kit = { version = "0.3", features = [
+    "NSApplication",
+    "NSEvent",
+    "NSResponder",
+    "NSScreen",
+    "NSView",
+    "NSWindow",
+] }
