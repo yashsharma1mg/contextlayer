@@ -10,7 +10,7 @@ import { searchMemories } from "../lib/search"
 
 export const memoriesRoute = new Hono()
 
-const scopeSchema = z.enum(["org", "team", "personal"])
+const scopeSchema = z.enum(["org", "personal"])
 const sourceSchema = z.enum([
 	"confluence",
 	"figma",
@@ -23,14 +23,9 @@ const sourceSchema = z.enum([
 	"capture",
 ])
 
-const scopedInput = z
-	.object({
-		teamId: z.string().optional(),
-		scope: scopeSchema,
-	})
-	.refine((value) => value.scope !== "team" || !!value.teamId, {
-		message: "teamId required for team scope",
-	})
+const scopedInput = z.object({
+	scope: scopeSchema,
+})
 
 const addDocumentSchema = scopedInput.and(
 	z.object({
@@ -48,9 +43,6 @@ const addDocumentSchema = scopedInput.and(
 memoriesRoute.post("/", zValidator("json", addDocumentSchema), async (c) => {
 	const caller = await requireCaller(c)
 	const body = c.req.valid("json")
-	if (body.teamId && !caller.teamIds.includes(body.teamId)) {
-		return c.json({ error: "Team access denied" }, 403)
-	}
 	const result = await ingestDocument({
 		...body,
 		orgId: caller.orgId,
@@ -84,13 +76,9 @@ memoriesRoute.post("/upload", async (c) => {
 		return c.json({ error: `${category} exceeds its upload limit` }, 413)
 
 	const fields = uploadFieldsSchema.parse({
-		teamId: body.teamId || undefined,
 		scope: body.scope,
 		title: body.title || undefined,
 	})
-	if (fields.teamId && !caller.teamIds.includes(fields.teamId)) {
-		return c.json({ error: "Team access denied" }, 403)
-	}
 
 	const bytes = new Uint8Array(await file.arrayBuffer())
 	const original = await storeObject({
@@ -112,7 +100,6 @@ memoriesRoute.post("/upload", async (c) => {
 			mimeType: file.type || "application/octet-stream",
 			title: fields.title ?? file.name,
 			scope: fields.scope,
-			...(fields.scope === "team" ? { teamId: fields.teamId } : {}),
 		},
 	})
 	return c.json({ job }, 202)
@@ -132,9 +119,6 @@ memoriesRoute.post(
 	async (c) => {
 		const caller = await requireCaller(c)
 		const input = c.req.valid("json")
-		if (input.teamId && !caller.teamIds.includes(input.teamId)) {
-			return c.json({ error: "Team access denied" }, 403)
-		}
 		const job = await enqueueJob({
 			orgId: caller.orgId,
 			createdBy: caller.userId,
@@ -145,7 +129,6 @@ memoriesRoute.post(
 				url: input.url,
 				title: input.title,
 				scope: input.scope,
-				...(input.scope === "team" ? { teamId: input.teamId } : {}),
 			},
 			idempotencyKey: `url:${input.url}:${input.scope}:${Math.floor(Date.now() / 60_000)}`,
 		})

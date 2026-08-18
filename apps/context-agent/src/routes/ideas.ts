@@ -9,11 +9,10 @@ import {
 	projectGitHubSettings,
 	projectMembers,
 	projects,
-	team,
 	user,
 } from "@repo/db"
 import { generateObject } from "ai"
-import { and, desc, eq, inArray } from "drizzle-orm"
+import { and, desc, eq } from "drizzle-orm"
 import { Hono } from "hono"
 import { createHash, randomBytes } from "node:crypto"
 import { z } from "zod"
@@ -280,31 +279,19 @@ ideasRoute.patch(
 	},
 )
 
-const shareSchema = z
-	.object({
-		visibility: z.enum(["personal", "team", "org"]),
-		teamId: z.string().optional(),
-	})
-	.refine((value) => value.visibility !== "team" || !!value.teamId, {
-		message: "teamId required when sharing to a team",
-	})
+const shareSchema = z.object({
+	visibility: z.enum(["personal", "org"]),
+})
 
 ideasRoute.patch(
 	"/projects/:id/share",
 	zValidator("json", shareSchema),
 	async (c) => {
 		const caller = await requireCaller(c)
-		const { visibility, teamId } = c.req.valid("json")
-		if (teamId && !caller.teamIds.includes(teamId)) {
-			return c.json({ error: "Team access denied" }, 403)
-		}
+		const { visibility } = c.req.valid("json")
 		const [updated] = await db
 			.update(projects)
-			.set({
-				visibility,
-				teamId: visibility === "team" ? teamId : null,
-				updatedAt: new Date(),
-			})
+			.set({ visibility, updatedAt: new Date() })
 			.where(
 				and(
 					eq(projects.id, c.req.param("id")),
@@ -318,25 +305,6 @@ ideasRoute.patch(
 		return c.json({ project: updated })
 	},
 )
-
-ideasRoute.get("/projects/:id/sharing-options", async (c) => {
-	const caller = await requireCaller(c)
-	const project = await getVisibleProject(c.req.param("id"), caller)
-	if (!project) return c.json({ error: "Project not found" }, 404)
-	const teams = caller.teamIds.length
-		? await db
-				.select({ id: team.id, name: team.name })
-				.from(team)
-				.where(
-					and(
-						eq(team.organizationId, caller.orgId),
-						inArray(team.id, caller.teamIds),
-					),
-				)
-				.orderBy(team.name)
-		: []
-	return c.json({ teams })
-})
 
 const shareLinkSchema = z.object({
 	expiresInDays: z.number().int().min(1).max(365).default(30),

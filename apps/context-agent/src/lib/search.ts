@@ -7,7 +7,6 @@ import { canUseEmbeddings } from "./provider-consent"
 export interface SearchParams {
 	q: string
 	orgId: string
-	teamIds: string[]
 	userId: string
 	limit: number
 }
@@ -27,7 +26,7 @@ export interface SearchResult {
 		| "google_drive"
 		| "slack"
 		| "capture"
-	scope: "org" | "team" | "personal"
+	scope: "org" | "personal"
 	chunkContent: string
 	chunkProvenance: Record<string, unknown> | null
 	distance: number
@@ -48,15 +47,14 @@ export function provenanceLabel(provenance: Record<string, unknown> | null) {
 }
 
 /**
- * Scope-aware semantic search in a SINGLE query: org-wide docs + the
- * caller's team(s) + the caller's personal docs, ranked by cosine distance.
- * This schema models visibility directly, so organization, team, and personal
- * results can be filtered in one query rather than merged client-side.
+ * Scope-aware semantic search in a SINGLE query: org-wide docs plus the
+ * caller's personal docs, ranked by cosine distance. This schema models
+ * visibility directly, so both can be filtered in one query rather than
+ * merged client-side.
  */
 export async function searchMemories({
 	q,
 	orgId,
-	teamIds,
 	userId,
 	limit,
 }: SearchParams): Promise<SearchResult[]> {
@@ -66,7 +64,6 @@ export async function searchMemories({
 
 	const visibility = documentVisibility({
 		orgId,
-		teamIds,
 		userId,
 		role: "member",
 	})

@@ -26,7 +26,7 @@ type Provider =
 type ConnectionStatus = {
 	connected: boolean
 	metadata?: {
-		access?: { scope?: "personal" | "org" | "team" }
+		access?: { scope?: "personal" | "org" }
 		[key: string]: unknown
 	} | null
 	health?: {

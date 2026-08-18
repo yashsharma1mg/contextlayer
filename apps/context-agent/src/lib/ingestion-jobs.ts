@@ -10,7 +10,6 @@ import { safeFetchText } from "./safe-fetch"
 const scope = z.discriminatedUnion("scope", [
 	z.object({ scope: z.literal("org") }),
 	z.object({ scope: z.literal("personal") }),
-	z.object({ scope: z.literal("team"), teamId: z.string().min(1) }),
 ])
 
 const uploadPayload = scope.and(
@@ -91,7 +90,6 @@ export async function ingestStoredObject(
 		orgId: input.orgId,
 		createdBy: input.userId,
 		consentUserId: input.userId,
-		teamId: input.scope === "team" ? input.teamId : undefined,
 		ownerUserId: input.scope === "personal" ? input.userId : undefined,
 		scope: input.scope,
 		source: "manual",
@@ -136,7 +134,6 @@ export async function ingestUrl(
 		orgId: input.orgId,
 		createdBy: input.userId,
 		consentUserId: input.userId,
-		teamId: input.scope === "team" ? input.teamId : undefined,
 		ownerUserId: input.scope === "personal" ? input.userId : undefined,
 		scope: input.scope,
 		source: "url",

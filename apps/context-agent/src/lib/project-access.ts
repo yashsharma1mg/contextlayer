@@ -1,5 +1,5 @@
 import { db, projectMembers, projects } from "@repo/db"
-import { and, eq, inArray, or, sql } from "drizzle-orm"
+import { and, eq, or, sql } from "drizzle-orm"
 import type { Caller } from "./caller"
 
 export type ProjectRole = "owner" | "editor" | "viewer"
@@ -25,12 +25,6 @@ export function projectVisibility(caller: Caller) {
 				and ${projectMembers.userId} = ${caller.userId}
 			)`,
 			eq(projects.visibility, "org"),
-			caller.teamIds.length > 0
-				? and(
-						eq(projects.visibility, "team"),
-						inArray(projects.teamId, caller.teamIds),
-					)
-				: undefined,
 			and(
 				eq(projects.visibility, "personal"),
 				eq(projects.ownerUserId, caller.userId),
@@ -60,12 +54,9 @@ export async function getProjectAccess(projectId: string, caller: Caller) {
 		)
 		.limit(1)
 	if (membership) return { project, role: membership.role }
-	const visibleByScope =
-		project.visibility === "org" ||
-		(project.visibility === "team" &&
-			!!project.teamId &&
-			caller.teamIds.includes(project.teamId))
-	return visibleByScope ? { project, role: "viewer" as const } : null
+	return project.visibility === "org"
+		? { project, role: "viewer" as const }
+		: null
 }
 
 export async function getVisibleProject(projectId: string, caller: Caller) {

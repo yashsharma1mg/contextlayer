@@ -11,13 +11,12 @@ import { nanoid } from "nanoid"
 
 /**
  * Visibility works like documents.scope: a project starts personal and can
- * be shared up to team or org. Enforcement lives in application code (WHERE
+ * be shared up to the org. Enforcement lives in application code (WHERE
  * clauses mirroring searchMemories()'s scope pattern) — no per-row ACL
  * table until a real exception case shows up.
  */
 export const projectVisibilityEnum = pgEnum("project_visibility", [
 	"personal",
-	"team",
 	"org",
 ])
 
@@ -41,8 +40,6 @@ export const projects = pgTable(
 			.primaryKey()
 			.$defaultFn(() => nanoid()),
 		orgId: text("org_id").notNull(),
-		// Set when visibility is "team" — which team it's shared with.
-		teamId: text("team_id"),
 		ownerUserId: text("owner_user_id").notNull(),
 		name: text("name").notNull(),
 		pinnedDesignSystemVersionId: text("pinned_design_system_version_id"),

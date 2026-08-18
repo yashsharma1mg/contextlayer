@@ -1,4 +1,4 @@
-import { db, member, team, teamMember } from "@repo/db"
+import { db, member } from "@repo/db"
 import { and, eq } from "drizzle-orm"
 import type { Context } from "hono"
 import { HTTPException } from "hono/http-exception"
@@ -7,7 +7,6 @@ import { auth } from "../auth"
 export interface Caller {
 	orgId: string
 	userId: string
-	teamIds: string[]
 	role: string
 }
 
@@ -21,17 +20,7 @@ export async function callerForIdentity(
 		.where(and(eq(member.organizationId, orgId), eq(member.userId, userId)))
 		.limit(1)
 	if (!membership) return null
-	const teams = await db
-		.select({ id: teamMember.teamId })
-		.from(teamMember)
-		.innerJoin(team, eq(team.id, teamMember.teamId))
-		.where(and(eq(teamMember.userId, userId), eq(team.organizationId, orgId)))
-	return {
-		orgId,
-		userId,
-		teamIds: teams.map(({ id }) => id),
-		role: membership.role,
-	}
+	return { orgId, userId, role: membership.role }
 }
 
 export async function requireCaller(c: Context): Promise<Caller> {

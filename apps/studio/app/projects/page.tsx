@@ -11,7 +11,7 @@ import { useCaller } from "@/lib/use-caller"
 interface Project {
 	id: string
 	name: string
-	visibility: "personal" | "team" | "org"
+	visibility: "personal" | "org"
 	ownerUserId: string
 	updatedAt: string
 }

@@ -73,7 +73,6 @@ async function ownedArtifact(
 		orgId,
 		userId,
 		role: "member",
-		teamIds: [],
 	})
 	if (!access || access.role !== "owner") return null
 	return { artifact, access }

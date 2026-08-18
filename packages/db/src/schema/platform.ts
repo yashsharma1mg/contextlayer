@@ -50,7 +50,6 @@ export const projectMembers = pgTable(
 
 export const sourcePrincipalKindEnum = pgEnum("source_principal_kind", [
 	"organization",
-	"team",
 	"user",
 ])
 

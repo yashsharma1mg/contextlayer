@@ -121,12 +121,7 @@ async function canvasForProject(projectId: string) {
 	return created
 }
 
-async function visibleCanvas(
-	canvasId: string,
-	userId: string,
-	orgId: string,
-	teamIds: string[],
-) {
+async function visibleCanvas(canvasId: string, userId: string, orgId: string) {
 	const [canvas] = await db
 		.select()
 		.from(canvases)
@@ -136,7 +131,6 @@ async function visibleCanvas(
 	const access = await getProjectAccess(canvas.projectId, {
 		userId,
 		orgId,
-		teamIds,
 		role: "member",
 	})
 	return access ? { canvas, ...access } : null
@@ -600,7 +594,6 @@ canvasRoute.post(
 			c.req.param("id"),
 			caller.userId,
 			caller.orgId,
-			caller.teamIds,
 		)
 		if (!visible) return c.json({ error: "Canvas not found" }, 404)
 		if (!projectRoleAllows(visible.role, "editor")) {
@@ -647,7 +640,6 @@ canvasRoute.patch(
 			c.req.param("id"),
 			caller.userId,
 			caller.orgId,
-			caller.teamIds,
 		)
 		if (!visible) return c.json({ error: "Canvas not found" }, 404)
 		if (!projectRoleAllows(visible.role, "editor")) {
@@ -709,7 +701,6 @@ canvasRoute.post(
 			c.req.param("id"),
 			caller.userId,
 			caller.orgId,
-			caller.teamIds,
 		)
 		if (!visible) return c.json({ error: "Canvas not found" }, 404)
 		if (!projectRoleAllows(visible.role, "editor")) {
@@ -868,7 +859,6 @@ canvasRoute.delete("/canvases/:canvasId/nodes/:nodeId", async (c) => {
 		c.req.param("canvasId"),
 		caller.userId,
 		caller.orgId,
-		caller.teamIds,
 	)
 	if (!visible) return c.json({ error: "Canvas not found" }, 404)
 	if (!projectRoleAllows(visible.role, "editor")) {
@@ -894,7 +884,6 @@ canvasRoute.delete("/canvases/:canvasId/edges/:edgeId", async (c) => {
 		c.req.param("canvasId"),
 		caller.userId,
 		caller.orgId,
-		caller.teamIds,
 	)
 	if (!visible) return c.json({ error: "Canvas not found" }, 404)
 	if (!projectRoleAllows(visible.role, "editor")) {
@@ -936,7 +925,6 @@ canvasRoute.post(
 			c.req.param("id"),
 			caller.userId,
 			caller.orgId,
-			caller.teamIds,
 		)
 		if (!visible) return c.json({ error: "Canvas not found" }, 404)
 		const input = c.req.valid("json")
@@ -989,7 +977,6 @@ canvasRoute.post(
 			c.req.param("canvasId"),
 			caller.userId,
 			caller.orgId,
-			caller.teamIds,
 		)
 		if (!visible) return c.json({ error: "Canvas not found" }, 404)
 		const [comment] = await db
@@ -1024,7 +1011,6 @@ canvasRoute.get("/canvases/:id/history", async (c) => {
 		c.req.param("id"),
 		caller.userId,
 		caller.orgId,
-		caller.teamIds,
 	)
 	if (!visible) return c.json({ error: "Canvas not found" }, 404)
 	const revisions = await db
@@ -1042,7 +1028,6 @@ canvasRoute.post("/canvases/:id/revisions/:revisionId/restore", async (c) => {
 		c.req.param("id"),
 		caller.userId,
 		caller.orgId,
-		caller.teamIds,
 	)
 	if (!visible) return c.json({ error: "Canvas not found" }, 404)
 	if (!projectRoleAllows(visible.role, "editor")) {
@@ -1122,7 +1107,6 @@ canvasRoute.post(
 			c.req.param("id"),
 			caller.userId,
 			caller.orgId,
-			caller.teamIds,
 		)
 		if (!visible) return c.json({ error: "Canvas not found" }, 404)
 		if (!projectRoleAllows(visible.role, "editor")) {

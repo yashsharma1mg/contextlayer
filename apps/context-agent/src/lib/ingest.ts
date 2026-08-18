@@ -15,9 +15,8 @@ export interface IngestInput {
 	createdBy?: string
 	consentUserId?: string
 	connectionId?: string
-	teamId?: string
 	ownerUserId?: string
-	scope: "org" | "team" | "personal"
+	scope: "org" | "personal"
 	source:
 		| "confluence"
 		| "figma"
@@ -81,11 +80,9 @@ export async function ingestDocument(input: IngestInput) {
 		}
 	}
 	const principal =
-		input.scope === "team"
-			? { kind: "team" as const, id: input.teamId }
-			: input.scope === "personal"
-				? { kind: "user" as const, id: input.ownerUserId }
-				: { kind: "organization" as const, id: input.orgId }
+		input.scope === "personal"
+			? { kind: "user" as const, id: input.ownerUserId }
+			: { kind: "organization" as const, id: input.orgId }
 	if (!principal.id)
 		throw new Error(`Missing principal for ${input.scope} scope`)
 	const principalId = principal.id
@@ -102,7 +99,6 @@ export async function ingestDocument(input: IngestInput) {
 				],
 				set: {
 					createdBy: input.createdBy,
-					teamId: input.teamId,
 					ownerUserId: input.ownerUserId,
 					scope: input.scope,
 					title: input.title,

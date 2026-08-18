@@ -15,7 +15,7 @@ import { vector } from "./vector-type"
 
 /**
  * IDs here are `text` to match Better Auth's default id shape (nanoid-style),
- * since organization.id / team.id / user.id are the FK targets once
+ * since organization.id / user.id are the FK targets once
  * schema/auth.ts is generated via `bunx @better-auth/cli generate`.
  */
 
@@ -31,19 +31,14 @@ export const documentSourceEnum = pgEnum("document_source", [
 	"capture",
 ])
 
-export const containerScopeEnum = pgEnum("container_scope", [
-	"org",
-	"team",
-	"personal",
-])
+export const containerScopeEnum = pgEnum("container_scope", ["org", "personal"])
 
 /**
  * One row per ingested unit of content (a Confluence page, a Figma file's
- * comment thread, etc). `orgId` is always set; exactly one of `teamId` /
- * `ownerUserId` is set depending on `scope` ("org" scope has neither).
- * Read visibility is scope-based (see routes: org-wide / team-member /
- * owner-only) — no separate per-document ACL table until an actual
- * exception case (share doc X outside its default scope) shows up.
+ * comment thread, etc). `orgId` is always set; `ownerUserId` is set when
+ * `scope` is "personal". Read visibility is scope-based (org-wide or
+ * owner-only) — no separate per-document ACL table until an actual exception
+ * case (share doc X outside its default scope) shows up.
  */
 export const documents = pgTable(
 	"documents",
@@ -54,7 +49,6 @@ export const documents = pgTable(
 		orgId: text("org_id").notNull(),
 		createdBy: text("created_by"),
 		connectionId: text("connection_id"),
-		teamId: text("team_id"),
 		ownerUserId: text("owner_user_id"),
 		scope: containerScopeEnum("scope").notNull(),
 		source: documentSourceEnum("source").notNull(),
@@ -81,7 +75,6 @@ export const documents = pgTable(
 	},
 	(table) => [
 		index("documents_org_idx").on(table.orgId),
-		index("documents_team_idx").on(table.teamId),
 		index("documents_owner_idx").on(table.ownerUserId),
 		unique("documents_connection_source_unique")
 			.on(table.orgId, table.connectionId, table.source, table.sourceId)

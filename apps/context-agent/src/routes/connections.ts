@@ -5,7 +5,6 @@ import {
 	db,
 	documents,
 	sourceAccessGrants,
-	team,
 } from "@repo/db"
 import { and, eq, inArray } from "drizzle-orm"
 import { Hono } from "hono"
@@ -584,7 +583,6 @@ connectionsRoute.patch(
 		z.discriminatedUnion("scope", [
 			z.object({ scope: z.literal("personal") }),
 			z.object({ scope: z.literal("org") }),
-			z.object({ scope: z.literal("team"), teamId: z.string().min(1) }),
 		]),
 	),
 	async (c) => {
@@ -595,31 +593,15 @@ connectionsRoute.patch(
 		const provider = connectionProvider(c.req.param("provider"))
 		if (!provider) return c.json({ error: "Connector provider not found" }, 404)
 		const input = c.req.valid("json")
-		if (input.scope === "team") {
-			const [organizationTeam] = await db
-				.select({ id: team.id })
-				.from(team)
-				.where(
-					and(eq(team.id, input.teamId), eq(team.organizationId, caller.orgId)),
-				)
-				.limit(1)
-			if (!organizationTeam) return c.json({ error: "Team not found" }, 404)
-		}
 		const connection = await getConnectionRow(caller.orgId, provider)
 		if (!connection) return c.json({ error: "Connector is not connected" }, 404)
-		const access = {
-			mapped: true,
-			scope: input.scope,
-			...(input.scope === "team" ? { teamId: input.teamId } : {}),
-		}
+		const access = { mapped: true, scope: input.scope }
 		const metadata = { ...(connection.metadata ?? {}), access }
 		const ownerUserId = connection.createdBy ?? caller.userId
 		const principal =
 			input.scope === "org"
 				? { kind: "organization" as const, id: caller.orgId }
-				: input.scope === "team"
-					? { kind: "team" as const, id: input.teamId }
-					: { kind: "user" as const, id: ownerUserId }
+				: { kind: "user" as const, id: ownerUserId }
 		await db.transaction(async (tx) => {
 			await tx
 				.update(connections)
@@ -629,7 +611,6 @@ connectionsRoute.patch(
 				.update(documents)
 				.set({
 					scope: input.scope,
-					teamId: input.scope === "team" ? input.teamId : null,
 					ownerUserId: input.scope === "personal" ? ownerUserId : null,
 				})
 				.where(eq(documents.connectionId, connection.id))

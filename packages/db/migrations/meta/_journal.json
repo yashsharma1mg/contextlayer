@@ -106,6 +106,13 @@
       "when": 1786999853680,
       "tag": "0014_tiny_impossible_man",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1787081361808,
+      "tag": "0015_loving_inertia",
+      "breakpoints": true
     }
   ]
 }

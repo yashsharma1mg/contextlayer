@@ -17,8 +17,8 @@ const studioUrl = process.env.STUDIO_URL ?? "http://localhost:3000"
 const authUrl = process.env.BETTER_AUTH_URL ?? "http://localhost:8787"
 
 /**
- * Org/team identity layer. This gives us membership + roles
- * ("is user X an admin of team Y") — NOT per-document permissions.
+ * Organization identity layer. This gives us membership + roles
+ * ("is user X an admin of org Y") — NOT per-document permissions.
  * Per-document read/edit is enforced separately via the
  * `documentAcl` table in @repo/db (see packages/db/src/schema/memory.ts).
  */
@@ -69,13 +69,7 @@ export const auth = betterAuth({
 				org_id: referenceId,
 			}),
 		}),
-		organization({
-			teams: {
-				enabled: true,
-				maximumTeams: 50,
-				allowRemovingAllTeams: false,
-			},
-		}),
+		organization(),
 	],
 })
 

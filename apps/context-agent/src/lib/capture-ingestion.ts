@@ -67,13 +67,12 @@ export async function syncProjectCaptureGrants(
 		.filter((id): id is string => !!id)
 	if (!documentIds.length) return
 
-	type Grant = { kind: "organization" | "team" | "user"; id: string }
+	type Grant = { kind: "organization" | "user"; id: string }
 	const grants = new Map<string, Grant>()
 	const add = (kind: Grant["kind"], id?: string | null) => {
 		if (id) grants.set(`${kind}:${id}`, { kind, id })
 	}
 	if (current.visibility === "org") add("organization", current.orgId)
-	else if (current.visibility === "team") add("team", current.teamId)
 	add("user", current.ownerUserId)
 	for (const member of members) add("user", member.userId)
 

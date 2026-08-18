@@ -18,18 +18,6 @@ export function connectionIngestScope(conn: Connection) {
 			consentUserId: conn.createdBy ?? undefined,
 		}
 	}
-	if (
-		access?.mapped === true &&
-		access.scope === "team" &&
-		typeof access.teamId === "string"
-	) {
-		return {
-			scope: "team" as const,
-			teamId: access.teamId,
-			createdBy: conn.createdBy ?? undefined,
-			consentUserId: conn.createdBy ?? undefined,
-		}
-	}
 	if (conn.createdBy) {
 		return {
 			scope: "personal" as const,

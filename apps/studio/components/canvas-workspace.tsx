@@ -148,8 +148,7 @@ interface Workspace {
 		pinnedDesignSystem?: { name: string; version: string } | null
 		canManageProjectSettings?: boolean
 		canManageConnections?: boolean
-		visibility?: "personal" | "team" | "org"
-		teamId?: string | null
+		visibility?: "personal" | "org"
 	}
 	canvas: { id: string; name: string; revision: number }
 	nodes: WorkspaceNode[]
@@ -1010,7 +1009,6 @@ export function CanvasWorkspace({
 						<SharePanel
 							projectId={activeProjectId}
 							visibility={workspace.project.visibility ?? "personal"}
-							teamId={workspace.project.teamId ?? null}
 							canManage={workspace.project.canManageProjectSettings ?? false}
 						/>
 					)}
@@ -1895,16 +1893,13 @@ function ArtifactPanel({
 function SharePanel({
 	projectId,
 	visibility: initialVisibility,
-	teamId,
 	canManage,
 }: {
 	projectId: string
-	visibility: "personal" | "team" | "org"
-	teamId: string | null
+	visibility: "personal" | "org"
 	canManage: boolean
 }) {
 	const [visibility, setVisibility] = useState(initialVisibility)
-	const [selectedTeamId, setSelectedTeamId] = useState(teamId)
 	const [shareUrl, setShareUrl] = useState<string | null>(null)
 	const [links, setLinks] = useState<
 		{
@@ -1916,7 +1911,6 @@ function SharePanel({
 	>([])
 	const [busy, setBusy] = useState(false)
 	const [error, setError] = useState<string | null>(null)
-	const [teams, setTeams] = useState<{ id: string; name: string }[]>([])
 	const [members, setMembers] = useState<ProjectMember[]>([])
 	const [memberEmail, setMemberEmail] = useState("")
 	const [memberRole, setMemberRole] = useState<"editor" | "viewer">("editor")
@@ -1940,28 +1934,15 @@ function SharePanel({
 		)
 	}, [loadLinks])
 
-	useEffect(() => {
-		apiGet<{ teams: { id: string; name: string }[] }>(
-			`/api/projects/${projectId}/sharing-options`,
-		)
-			.then((result) => setTeams(result.teams))
-			.catch(() => undefined)
-	}, [projectId])
-
 	async function updateVisibility(value: string) {
-		const [nextVisibility, nextTeamId] = value.split(":") as [
-			"personal" | "team" | "org",
-			string | undefined,
-		]
+		const nextVisibility = value as "personal" | "org"
 		setBusy(true)
 		setError(null)
 		try {
 			await apiSend("PATCH", `/api/projects/${projectId}/share`, {
 				visibility: nextVisibility,
-				...(nextVisibility === "team" ? { teamId: nextTeamId } : {}),
 			})
 			setVisibility(nextVisibility)
-			setSelectedTeamId(nextVisibility === "team" ? (nextTeamId ?? null) : null)
 		} catch (cause) {
 			setError(
 				cause instanceof Error ? cause.message : "Could not update sharing",
@@ -2146,22 +2127,13 @@ function SharePanel({
 				</label>
 				<select
 					id="project-visibility"
-					value={
-						visibility === "team" && selectedTeamId
-							? `team:${selectedTeamId}`
-							: visibility
-					}
+					value={visibility}
 					disabled={busy || !canManage}
 					onChange={(event) => updateVisibility(event.target.value)}
 					className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
 				>
 					<option value="personal">Only me</option>
 					<option value="org">Everyone in this organization</option>
-					{teams.map((team) => (
-						<option key={team.id} value={`team:${team.id}`}>
-							{team.name}
-						</option>
-					))}
 				</select>
 			</div>
 			<div className="border-t border-border pt-4">
