@@ -501,11 +501,23 @@ pub fn run() {
                     eprintln!("Context Layer startup failed: {error}");
                     terminate_all(&children);
                     handle.exit(1);
+                    return;
                 }
+                // Only now is the Studio server listening. Creating the HUD
+                // any earlier points a webview at a refused connection, and it
+                // never retries — the window would sit blank for the session.
+                //
+                // NSWindow may only be constructed on the main thread, and this
+                // runs on a blocking worker, so hop back before building.
+                let _ = handle.run_on_main_thread({
+                    let handle = handle.clone();
+                    move || {
+                        if let Err(error) = hud::create(&handle) {
+                            eprintln!("Context Layer HUD failed to start: {error}");
+                        }
+                    }
+                });
             });
-            if let Some(window) = app.get_webview_window("hud") {
-                hud::init(&window);
-            }
             register_hud_shortcut(app.handle())?;
             Ok(())
         })

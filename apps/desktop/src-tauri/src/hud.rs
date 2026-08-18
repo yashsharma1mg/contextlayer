@@ -20,7 +20,7 @@
 //! key status. If a future state needs clicks that do *not* activate, that is
 //! the point at which this would have to become a non-activating `NSPanel`.
 
-use tauri::{Manager, WebviewWindow};
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, WebviewWindow};
 
 /// Collapsed height. Slightly taller than the notch itself so the rounded
 /// bottom corners are visible below the cutout.
@@ -231,6 +231,39 @@ fn ns_window_of(window: &WebviewWindow) -> *mut std::ffi::c_void {
     window
         .ns_window()
         .unwrap_or(std::ptr::null_mut::<std::ffi::c_void>())
+}
+
+/// Builds the HUD window and parks it at its collapsed size.
+///
+/// Deliberately not declared in tauri.conf.json: the page is served by the
+/// local Studio process, so a window created at app start would load before
+/// that server is listening, fail with a refused connection, and never retry.
+/// The caller invokes this only after the port is confirmed up.
+pub fn create(app: &AppHandle) -> Result<WebviewWindow, tauri::Error> {
+    if let Some(existing) = app.get_webview_window("hud") {
+        return Ok(existing);
+    }
+    let url = "http://127.0.0.1:31420/hud"
+        .parse()
+        .map_err(|_| tauri::Error::UnknownPath)?;
+    let window = WebviewWindowBuilder::new(app, "hud", WebviewUrl::External(url))
+        .title("Context Layer HUD")
+        .inner_size(FALLBACK_COLLAPSED_WIDTH, COLLAPSED_HEIGHT)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .resizable(false)
+        .shadow(false)
+        .skip_taskbar(true)
+        // Never take focus on creation: the HUD is ambient, and stealing key
+        // status from whatever the user is working in is the one thing it
+        // must not do.
+        .focused(false)
+        .accept_first_mouse(true)
+        .visible_on_all_workspaces(true)
+        .build()?;
+    init(&window);
+    Ok(window)
 }
 
 /// Applies platform flags and parks the HUD at its collapsed size.
