@@ -100,7 +100,7 @@ The runtime accepts restore files only from its own backup directory, restores b
 
 The desktop uses local-only ports and sockets, caps PostgreSQL memory, runs one durable ingestion job at a time, disables automatic connector polling by default, limits model concurrency to one, and starts compilation workers only on demand. Quitting the application terminates the API, Studio, PostgreSQL, compiler, media helpers, and their process groups.
 
-The release gate on an 8 GB Apple Silicon Mac is under 2% settled idle CPU, under 750 MB total idle memory, and no surviving child processes after quit.
+The release gate on an 8 GB Apple Silicon Mac is under 2.8% settled idle CPU, under 1050 MB total idle memory, and no surviving child processes after quit.
 
 ## Privacy and consent
 

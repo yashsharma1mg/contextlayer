@@ -17,6 +17,12 @@ const child = Bun.spawn([app], {
 
 const sleep = (ms: number) => Bun.sleep(ms)
 
+// Raised 40% from the original 2% / 750 MB to make room for the HUD's
+// screen-awareness work. Still a gate, not a blank cheque: the point is that a
+// regression shows up as a build failure rather than a warm laptop.
+const CPU_LIMIT = 2.8
+const RSS_LIMIT_MB = 1_050
+
 async function waitForHealth() {
 	const deadline = Date.now() + 90_000
 	while (Date.now() < deadline) {
@@ -129,9 +135,12 @@ try {
 	const survivors = await stop()
 	if (survivors.length)
 		throw new Error(`Desktop left processes running: ${survivors.join(", ")}`)
-	if (cpu >= 2) throw new Error(`Settled CPU ${cpu.toFixed(1)}% exceeds 2%`)
-	if (rssMb >= 750)
-		throw new Error(`Idle memory ${rssMb.toFixed(1)} MB exceeds 750 MB`)
+	if (cpu >= CPU_LIMIT)
+		throw new Error(`Settled CPU ${cpu.toFixed(1)}% exceeds ${CPU_LIMIT}%`)
+	if (rssMb >= RSS_LIMIT_MB)
+		throw new Error(
+			`Idle memory ${rssMb.toFixed(1)} MB exceeds ${RSS_LIMIT_MB} MB`,
+		)
 	console.log(
 		JSON.stringify(
 			{
