@@ -319,6 +319,28 @@ mod tests {
         assert!(collapsed.y + collapsed.height < screen.y + screen.height);
     }
 
+    /// Values read off the machine this was built on (MacBook Air 13", built-in
+    /// Liquid Retina). Synthetic screens verify the shape of the maths; this
+    /// pins it to hardware that actually exists, where the notch is not
+    /// centred to the pixel — auxiliaryTopLeftArea is 646 and the right is 645.
+    #[test]
+    fn matches_real_hardware() {
+        let screen = Rect { x: 0.0, y: 0.0, width: 1470.0, height: 956.0 };
+        let visible = Rect { x: 0.0, y: 57.0, width: 1470.0, height: 866.0 };
+        // frame.width - auxLeft(646) - auxRight(645) = 179, starting at 646.
+        let (collapsed, expanded) = compute_frames(screen, visible, Some((646.0, 179.0)));
+
+        assert_eq!(collapsed.x, 646.0);
+        assert_eq!(collapsed.width, 179.0);
+        // Flush with the physical top (956), not the menu bar bottom (923).
+        assert_eq!(collapsed.y + collapsed.height, 956.0);
+
+        // Centred on the real notch, and comfortably on screen.
+        assert_eq!(expanded.x, 646.0 + 89.5 - 320.0);
+        assert_eq!(expanded.y + expanded.height, 956.0);
+        assert!(expanded.x >= 0.0 && expanded.x + expanded.width <= 1470.0);
+    }
+
     #[test]
     fn expanded_panel_is_clamped_onto_a_narrow_screen() {
         // Narrower than the expanded panel's preferred 640, with the notch far

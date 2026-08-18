@@ -1,5 +1,49 @@
 import { z } from "zod"
 
+/**
+ * A node in the screen tree. `children` is what makes the emitted source an
+ * actual layout rather than a flat list of components, and `text` carries leaf
+ * content such as a button label.
+ */
+export interface UiComponent {
+	assetId?: string
+	componentId: string
+	screen?: string
+	props: Record<string, unknown>
+	variants: Record<string, unknown>
+	text?: string
+	children?: UiComponent[]
+}
+
+/**
+ * What a caller may supply. `props` and `variants` are filled in by `.default({})`,
+ * so they are optional going in and guaranteed coming out — which is why the
+ * schema needs the three-parameter form below rather than `z.ZodType<UiComponent>`.
+ */
+type UiComponentInput = Omit<UiComponent, "props" | "variants" | "children"> & {
+	props?: Record<string, unknown>
+	variants?: Record<string, unknown>
+	children?: UiComponentInput[]
+}
+
+// z.lazy plus an explicit annotation: the schema references itself, so its type
+// cannot be inferred.
+export const uiComponentSchema: z.ZodType<
+	UiComponent,
+	z.ZodTypeDef,
+	UiComponentInput
+> = z.lazy(() =>
+	z.object({
+		assetId: z.string().optional(),
+		componentId: z.string(),
+		screen: z.string().optional(),
+		props: z.record(z.unknown()).default({}),
+		variants: z.record(z.unknown()).default({}),
+		text: z.string().optional(),
+		children: z.array(uiComponentSchema).optional(),
+	}),
+)
+
 export const uiPlanSchema = z.object({
 	title: z.string(),
 	summary: z.string(),
@@ -14,15 +58,7 @@ export const uiPlanSchema = z.object({
 		}),
 	),
 	navigation: z.array(z.string()),
-	components: z.array(
-		z.object({
-			assetId: z.string().optional(),
-			componentId: z.string(),
-			screen: z.string().optional(),
-			props: z.record(z.unknown()).default({}),
-			variants: z.record(z.unknown()).default({}),
-		}),
-	),
+	components: z.array(uiComponentSchema),
 	tokens: z.array(
 		z.union([z.string(), z.object({ assetId: z.string(), name: z.string() })]),
 	),
@@ -78,7 +114,19 @@ export function validateUiPlan(
 	) {
 		errors.push("UI plan is not pinned to the project's design-system version")
 	}
-	for (const component of plan.components) {
+	// Walk the whole tree: a nested unapproved component would otherwise reach
+	// the emitter unchecked, which is exactly what this validation exists to
+	// prevent.
+	const flattened: UiComponent[] = []
+	const visit = (nodes: UiComponent[]) => {
+		for (const node of nodes) {
+			flattened.push(node)
+			if (node.children?.length) visit(node.children)
+		}
+	}
+	visit(plan.components)
+
+	for (const component of flattened) {
 		const asset = components.get(component.componentId)
 		if (!asset) {
 			errors.push(`Unapproved component: ${component.componentId}`)

@@ -1,4 +1,4 @@
-import type { ApprovedDesignAsset, UiPlan } from "./ui-plan"
+import type { ApprovedDesignAsset, UiComponent, UiPlan } from "./ui-plan"
 
 function identifier(value: string) {
 	return value.replace(/[^a-zA-Z0-9_$]/g, "")
@@ -9,6 +9,41 @@ function attributes(values: Record<string, unknown>) {
 		.filter(([name]) => /^[a-zA-Z_$][\w$]*$/.test(name))
 		.map(([name, value]) => ` ${name}={${JSON.stringify(value)}}`)
 		.join("")
+}
+
+/**
+ * Collects every component in the tree so imports can be resolved in one pass.
+ */
+function flatten(nodes: UiComponent[]): UiComponent[] {
+	return nodes.flatMap((node) => [node, ...flatten(node.children ?? [])])
+}
+
+/**
+ * Text is emitted as a JSX expression container rather than raw children so
+ * braces, angle brackets, and quotes in copy cannot break the output.
+ */
+function renderNode(
+	node: UiComponent,
+	localNames: Map<string, string>,
+	depth: number,
+): string {
+	const indent = "  ".repeat(depth + 3)
+	const tag = localNames.get(node.componentId)
+	if (!tag) throw new Error(`Missing import mapping for ${node.componentId}`)
+	const attrs = attributes({ ...node.props, ...node.variants })
+
+	const children = node.children ?? []
+	const hasText = typeof node.text === "string" && node.text.length > 0
+	if (children.length === 0 && !hasText) {
+		return `${indent}<${tag}${attrs} />`
+	}
+
+	const inner: string[] = []
+	if (hasText) inner.push(`${indent}  {${JSON.stringify(node.text)}}`)
+	for (const child of children) {
+		inner.push(renderNode(child, localNames, depth + 1))
+	}
+	return `${indent}<${tag}${attrs}>\n${inner.join("\n")}\n${indent}</${tag}>`
 }
 
 export function reactSourceFromUiPlan(
@@ -24,7 +59,13 @@ export function reactSourceFromUiPlan(
 			},
 		]),
 	)
-	const used = plan.components.map((component, index) => {
+
+	// One import per distinct component, regardless of how many times or how
+	// deeply it appears in the tree.
+	const localNames = new Map<string, string>()
+	const importLines: string[] = []
+	for (const [index, component] of flatten(plan.components).entries()) {
+		if (localNames.has(component.componentId)) continue
 		const asset = imports.get(component.componentId)
 		if (
 			!asset ||
@@ -33,21 +74,19 @@ export function reactSourceFromUiPlan(
 		) {
 			throw new Error(`Missing import mapping for ${component.componentId}`)
 		}
-		return {
-			component,
-			localName: identifier(component.componentId) || `Component${index + 1}`,
-			...asset,
-		}
-	})
-	const importLines = used.map(
-		({ exportName, importPath, localName }) =>
-			`import { ${exportName} as ${localName} } from ${JSON.stringify(importPath)}`,
-	)
-	const elements = used.map(
-		({ component, localName }) =>
-			`      <${localName}${attributes({ ...component.props, ...component.variants })} />`,
-	)
-	return `"use client"\n\n${[...new Set(importLines)].join("\n")}\n\nexport default function ${identifier(plan.title) || "GeneratedScreen"}() {\n  return (\n    <main>\n      <h1>{${JSON.stringify(plan.title)}}</h1>\n${elements.join("\n")}\n    </main>\n  )\n}\n`
+		const localName =
+			identifier(component.componentId) || `Component${index + 1}`
+		localNames.set(component.componentId, localName)
+		importLines.push(
+			`import { ${asset.exportName} as ${localName} } from ${JSON.stringify(asset.importPath)}`,
+		)
+	}
+
+	const tree = plan.components
+		.map((node) => renderNode(node, localNames, 0))
+		.join("\n")
+
+	return `"use client"\n\n${[...new Set(importLines)].join("\n")}\n\nexport default function ${identifier(plan.title) || "GeneratedScreen"}() {\n  return (\n    <main>\n      <h1>{${JSON.stringify(plan.title)}}</h1>\n${tree}\n    </main>\n  )\n}\n`
 }
 
 function pathSegment(value: string) {

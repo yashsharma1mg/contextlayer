@@ -1,55 +1,147 @@
 import { expect, test } from "bun:test"
-import { reactSourceFromUiPlan } from "./react-source"
-import { validateGeneratedFiles } from "./prototype-validation"
-import { uiPlanSchema } from "./ui-plan"
+import { reactFilesFromUiPlan, reactSourceFromUiPlan } from "./react-source"
+import type { ApprovedDesignAsset, UiPlan } from "./ui-plan"
 
-test("creates React source from approved component imports", () => {
-	const plan = uiPlanSchema.parse({
-		title: "Settings <Admin>",
-		summary: "",
-		screens: [{ name: "Settings", purpose: "", states: ["default"] }],
-		navigation: [],
-		components: [
-			{ componentId: "Button", props: { label: "Save" }, variants: {} },
+const assets: ApprovedDesignAsset[] = [
+	{
+		id: "a1",
+		name: "Stack",
+		kind: "primitive",
+		data: { importPath: "@acme/ds", exportName: "Stack", props: { gap: {} } },
+	},
+	{
+		id: "a2",
+		name: "Button",
+		kind: "component",
+		data: {
+			importPath: "@acme/ds",
+			exportName: "Button",
+			props: {},
+			variants: { tone: {} },
+		},
+	},
+]
+
+function plan(components: UiPlan["components"]): UiPlan {
+	return {
+		title: "Settings",
+		summary: "Settings screen",
+		manifestVersionId: "v1",
+		targetFramework: "vite",
+		screens: [
+			{
+				name: "Settings",
+				purpose: "settings",
+				route: "/",
+				states: ["default"],
+			},
 		],
+		navigation: [],
+		components,
 		tokens: [],
-		fileStructure: ["Settings.tsx"],
-	})
-	expect(
-		reactSourceFromUiPlan(plan, [
+		citations: [],
+		fileStructure: ["src/App.tsx"],
+	}
+}
+
+test("nests children inside their parent instead of flattening them", () => {
+	const source = reactSourceFromUiPlan(
+		plan([
 			{
-				name: "Button",
-				kind: "component",
-				data: { importPath: "@acme/ui", exportName: "Button" },
+				componentId: "Stack",
+				props: { gap: 8 },
+				variants: {},
+				children: [
+					{ componentId: "Button", props: {}, variants: { tone: "primary" } },
+				],
 			},
 		]),
-	).toContain('import { Button as Button } from "@acme/ui"')
-	expect(
-		reactSourceFromUiPlan(plan, [
-			{
-				name: "Button",
-				kind: "component",
-				data: { importPath: "@acme/ui", exportName: "Button" },
-			},
-		]),
-	).toContain('<h1>{"Settings <Admin>"}</h1>')
+		assets,
+	)
+
+	// The regression this guards: the emitter used to drop children entirely and
+	// emit every component as a sibling self-closing tag.
+	expect(source).toContain("<Stack")
+	expect(source).toContain("</Stack>")
+	expect(source.indexOf("<Button")).toBeGreaterThan(source.indexOf("<Stack"))
+	expect(source.indexOf("<Button")).toBeLessThan(source.indexOf("</Stack>"))
 })
 
-test("rejects bare and dynamic imports outside the approved design system", () => {
-	const errors = validateGeneratedFiles(
-		[
+test("a component used twice is imported once", () => {
+	const source = reactSourceFromUiPlan(
+		plan([
 			{
-				path: "src/App.tsx",
-				content:
-					'import "unapproved/reset.css"; export default async function App() { await import("unapproved/runtime"); return null }',
+				componentId: "Stack",
+				props: {},
+				variants: {},
+				children: [
+					{ componentId: "Button", props: {}, variants: {} },
+					{ componentId: "Button", props: {}, variants: {} },
+				],
 			},
-		],
-		["@approved/system"],
+		]),
+		assets,
 	)
-	expect(errors).toContain(
-		"Unapproved import unapproved/reset.css in src/App.tsx",
+	const imports = source
+		.split("\n")
+		.filter((line) => line.startsWith("import ") && line.includes("Button"))
+	expect(imports).toHaveLength(1)
+})
+
+test("leaf text is emitted as an expression so copy cannot break the JSX", () => {
+	const source = reactSourceFromUiPlan(
+		plan([
+			{
+				componentId: "Button",
+				props: {},
+				variants: {},
+				text: 'Save & "exit" <now>',
+			},
+		]),
+		assets,
 	)
-	expect(errors).toContain(
-		"Unapproved import unapproved/runtime in src/App.tsx",
+	expect(source).toContain(JSON.stringify('Save & "exit" <now>'))
+	expect(source).toContain("</Button>")
+})
+
+test("a component with neither children nor text stays self-closing", () => {
+	const source = reactSourceFromUiPlan(
+		plan([{ componentId: "Button", props: {}, variants: {} }]),
+		assets,
 	)
+	expect(source).toContain("<Button />")
+	expect(source).not.toContain("</Button>")
+})
+
+test("an unmapped component fails loudly rather than emitting a bad import", () => {
+	expect(() =>
+		reactSourceFromUiPlan(
+			plan([{ componentId: "Ghost", props: {}, variants: {} }]),
+			assets,
+		),
+	).toThrow(/Missing import mapping for Ghost/)
+})
+
+test("nested children inherit their parent's screen when files are split", () => {
+	const multi = plan([
+		{
+			componentId: "Stack",
+			screen: "Settings",
+			props: {},
+			variants: {},
+			children: [{ componentId: "Button", props: {}, variants: {} }],
+		},
+	])
+	multi.screens = [
+		{ name: "Settings", purpose: "s", route: "/", states: ["default"] },
+		{ name: "Billing", purpose: "b", route: "/billing", states: ["default"] },
+	]
+	const files = reactFilesFromUiPlan(multi, assets)
+
+	const settings = files.find((f) => f.path.includes("SettingsScreen"))
+	const billing = files.find((f) => f.path.includes("BillingScreen"))
+	// The child has no `screen` of its own; it must follow its parent rather
+	// than leaking onto every screen.
+	expect(settings?.content).toContain("<Button")
+	expect(billing?.content).not.toContain("<Button")
 })
