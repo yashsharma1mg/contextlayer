@@ -397,6 +397,100 @@ function exportedNames(text: string) {
 	return names
 }
 
+/**
+ * Returns the body of the brace-delimited block starting at `open`, or null if
+ * it is unbalanced.
+ */
+function block(text: string, open: number) {
+	let depth = 0
+	for (let i = open; i < text.length; i += 1) {
+		if (text[i] === "{") depth += 1
+		else if (text[i] === "}") {
+			depth -= 1
+			if (depth === 0) return text.slice(open + 1, i)
+		}
+	}
+	return null
+}
+
+/**
+ * Splits a type body into members, breaking on `;` or newline only at nesting
+ * depth zero so inline object types and generics stay in one piece.
+ */
+function members(body: string) {
+	const out: string[] = []
+	let depth = 0
+	let current = ""
+	for (const char of body) {
+		if (char === "{" || char === "(" || char === "[" || char === "<") depth += 1
+		if (char === "}" || char === ")" || char === "]" || char === ">") depth -= 1
+		if ((char === ";" || char === "\n") && depth <= 0) {
+			if (current.trim()) out.push(current.trim())
+			current = ""
+			continue
+		}
+		current += char
+	}
+	if (current.trim()) out.push(current.trim())
+	return out
+}
+
+const STRING_UNION = /^(?:"[^"]*"|'[^']*')(?:\s*\|\s*(?:"[^"]*"|'[^']*'))*$/
+
+/**
+ * Prop and variant names per component, read from TypeScript declarations.
+ *
+ * Design systems overwhelmingly name their prop types `<Component>Props`, so
+ * that convention is what is matched rather than pulling in a real TypeScript
+ * parser — consistent with how exports and Code Connect mappings are already
+ * read here.
+ *
+ * A prop whose type is a union of string literals is treated as a variant, and
+ * its allowed values are kept: that is exactly what validateUiPlan checks a
+ * generated plan against.
+ *
+ * ponytail: regex + brace matching, not a TS parser. Handles the `<Name>Props`
+ * convention and literal unions; upgrade to the TypeScript compiler API if
+ * mapped types or cross-file prop composition start mattering.
+ */
+export function componentPropTypes(texts: { path: string; text: string }[]) {
+	const found = new Map<
+		string,
+		{ props: Record<string, unknown>; variants: Record<string, string[]> }
+	>()
+	for (const { text } of texts) {
+		const declaration = /(?:interface|type)\s+([A-Za-z_$][\w$]*)Props\b[^{]*/g
+		for (const match of text.matchAll(declaration)) {
+			const component = match[1]
+			if (!component) continue
+			const open = text.indexOf("{", (match.index ?? 0) + match[0].length - 1)
+			if (open === -1) continue
+			const body = block(text, open)
+			if (!body) continue
+
+			const entry = found.get(component) ?? { props: {}, variants: {} }
+			for (const member of members(body)) {
+				const parsed =
+					/^(?:readonly\s+)?([A-Za-z_$][\w$]*)\??\s*:\s*([\s\S]+)$/.exec(member)
+				const name = parsed?.[1]
+				const type = parsed?.[2]?.trim()
+				if (!name || !type) continue
+				if (STRING_UNION.test(type)) {
+					entry.variants[name] = type
+						.split("|")
+						.map((value) => value.trim().slice(1, -1))
+				} else {
+					entry.props[name] = {}
+				}
+			}
+			// Variants are props too; validateUiPlan checks them separately but
+			// a plan may legitimately pass one as either.
+			found.set(component, entry)
+		}
+	}
+	return found
+}
+
 function codeConnectMappings(texts: string[]) {
 	const mappings = new Map<string, string[]>()
 	for (const text of texts) {
@@ -480,10 +574,14 @@ async function packageImport(
 			.filter(({ path }) => /\.figma\.[jt]sx?$/.test(path))
 			.map(({ text }) => text),
 	)
+	const sourceFiles = texts.filter(({ path }) => /\.[cm]?[jt]sx?$/.test(path))
 	const exports = new Set<string>()
-	for (const file of texts.filter(({ path }) => /\.[cm]?[jt]sx?$/.test(path))) {
+	for (const file of sourceFiles) {
 		for (const exported of exportedNames(file.text)) exports.add(exported)
 	}
+	// Declared prop and variant names, so validateUiPlan has something real to
+	// check a generated plan against rather than an empty allowlist.
+	const propTypes = componentPropTypes(sourceFiles)
 	manifest.components = [...exports]
 		.filter((exported) => /^[A-Z]/.test(exported))
 		.slice(0, 2_000)
@@ -491,8 +589,8 @@ async function packageImport(
 			name: exportName,
 			importPath: packageName,
 			exportName,
-			props: {},
-			variants: {},
+			props: propTypes.get(exportName)?.props ?? {},
+			variants: propTypes.get(exportName)?.variants ?? {},
 			examples: [],
 			accessibility: [],
 			composition: [],
@@ -568,6 +666,10 @@ async function storybookImport(
 		.map((componentName) => ({
 			name: componentName,
 			exportName: componentName.replace(/[^A-Za-z0-9_$]/g, ""),
+			// Storybook's index carries no argTypes, so props would need a fetch
+			// per story. Left empty deliberately: mergeAssets prefers whichever
+			// source has real prop data, so a package import of the same
+			// component fills these in.
 			props: {},
 			variants: {},
 			examples: entries
