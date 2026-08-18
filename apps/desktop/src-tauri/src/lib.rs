@@ -488,6 +488,8 @@ pub fn run() {
         .manage(runtime)
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            hud::hud_visible,
+            hud::hud_set_visible,
             hud::hud_expand,
             hud::hud_content_height,
             hud::hud_collapse,

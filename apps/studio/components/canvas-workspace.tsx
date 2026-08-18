@@ -34,6 +34,7 @@ import {
 	MessageCircle,
 	MonitorUp,
 	MousePointer2,
+	PanelTop,
 	Paperclip,
 	Pencil,
 	Plus,
@@ -48,6 +49,7 @@ import {
 import Link from "next/link"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
+import { useHud } from "@/lib/use-hud"
 import {
 	ProviderConsentControls,
 	SourceControls,
@@ -410,6 +412,7 @@ export function CanvasWorkspace({
 		embeddings: { id: string; remote: boolean } | null
 	} | null>(null)
 	const inputRef = useRef<HTMLInputElement>(null)
+	const hud = useHud()
 	const activeProjectId = workspace?.project.id ?? projectId ?? ""
 
 	const load = useCallback(async () => {
@@ -881,6 +884,21 @@ export function CanvasWorkspace({
 								? `${workspace.project.pinnedDesignSystem.name} v${workspace.project.pinnedDesignSystem.version}`
 								: "No system"}
 						</span>
+						{hud.available && (
+							<SimpleTooltip
+								label={hud.visible ? "Hide notch HUD" : "Show notch HUD"}
+							>
+								<Button
+									aria-label={hud.visible ? "Hide notch HUD" : "Show notch HUD"}
+									aria-pressed={hud.visible}
+									variant={hud.visible ? "secondary" : "ghost"}
+									size="icon"
+									onClick={hud.toggle}
+								>
+									<PanelTop />
+								</Button>
+							</SimpleTooltip>
+						)}
 						<SimpleTooltip label="Artifact revisions">
 							<Button
 								aria-label="Artifact revisions"

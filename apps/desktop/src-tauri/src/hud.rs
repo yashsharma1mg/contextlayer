@@ -261,6 +261,10 @@ pub fn create(app: &AppHandle) -> Result<WebviewWindow, tauri::Error> {
         .focused(false)
         .accept_first_mouse(true)
         .visible_on_all_workspaces(true)
+        // Off until the canvas asks for it. Created up front regardless so the
+        // page is already loaded and the first reveal is instant rather than a
+        // blank window that fills in.
+        .visible(false)
         .build()?;
     init(&window);
     Ok(window)
@@ -422,6 +426,33 @@ mod tests {
         assert!(expanded.x >= 1512.0);
         assert!(expanded.x + expanded.width <= 1512.0 + 1920.0 + 0.001);
     }
+}
+
+/// Whether the HUD is currently on screen. Drives the canvas toggle's state.
+#[tauri::command]
+pub fn hud_visible(app: AppHandle) -> bool {
+    app.get_webview_window("hud")
+        .and_then(|w| w.is_visible().ok())
+        .unwrap_or(false)
+}
+
+/// Shows or hides the HUD. Returns the resulting state so the caller does not
+/// have to ask again.
+///
+/// Showing uses `show` without `set_focus`: revealing the HUD must not pull
+/// focus away from the canvas the user just clicked in.
+#[tauri::command]
+pub fn hud_set_visible(app: AppHandle, visible: bool) -> bool {
+    let Some(window) = app.get_webview_window("hud") else {
+        return false;
+    };
+    if visible {
+        collapse(&window);
+        let _ = window.show();
+    } else {
+        let _ = window.hide();
+    }
+    visible
 }
 
 #[tauri::command]
