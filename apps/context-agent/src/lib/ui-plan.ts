@@ -154,24 +154,37 @@ export function validateUiPlan(
 			errors.push(`Asset ID does not match token ${name}`)
 		}
 	}
+	return errors
+}
+
+const THOROUGH_STATES = [
+	"permission",
+	"loading",
+	"empty",
+	"validation",
+	"error",
+	"retry",
+	"quota",
+	"recovery",
+] as const
+
+/**
+ * Advisory state coverage.
+ *
+ * These used to be hard failures, which rejected most otherwise-valid plans —
+ * a perfectly good settings screen does not necessarily have a "quota" state.
+ * They are worth surfacing, but they say nothing about design-system
+ * integrity, so they no longer block generation. Only unapproved components,
+ * props, variants, and tokens do that.
+ */
+export function uiPlanStateWarnings(plan: UiPlan) {
 	const states = plan.screens
 		.flatMap((screen) => screen.states)
 		.join(" ")
 		.toLowerCase()
-	for (const required of [
-		"permission",
-		"loading",
-		"empty",
-		"validation",
-		"error",
-		"retry",
-		"quota",
-		"recovery",
-	]) {
-		if (!states.includes(required))
-			errors.push(`Missing ${required} state coverage`)
-	}
-	return errors
+	return THOROUGH_STATES.filter((state) => !states.includes(state)).map(
+		(state) => `No ${state} state described`,
+	)
 }
 
 export function validateUiPlanCitations(

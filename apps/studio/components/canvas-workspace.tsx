@@ -1021,6 +1021,11 @@ export function CanvasWorkspace({
 							title={selectedRecord.artifactTitle ?? selectedRecord.label}
 							body={selectedRecord.artifactBody ?? ""}
 							kind={selectedRecord.artifactKind}
+							warnings={
+								Array.isArray(selectedRecord.data.planWarnings)
+									? (selectedRecord.data.planWarnings as string[])
+									: []
+							}
 							canPublish={workspace.project.canManageProjectSettings ?? false}
 							sources={selectedRecord.artifactSources ?? []}
 							onSourceSelected={focusSource}
@@ -1507,6 +1512,7 @@ function ArtifactPanel({
 	title: initialTitle,
 	body: initialBody,
 	kind,
+	warnings,
 	canPublish,
 	sources,
 	onSourceSelected,
@@ -1517,6 +1523,7 @@ function ArtifactPanel({
 	title: string
 	body: string
 	kind: string | null
+	warnings: string[]
 	canPublish: boolean
 	sources: { documentId: string; title: string; url: string | null }[]
 	onSourceSelected: (documentId: string) => void
@@ -1688,6 +1695,19 @@ function ArtifactPanel({
 
 	return (
 		<div className="space-y-4">
+			{warnings.length > 0 && (
+				<details className="rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-xs">
+					<summary className="cursor-pointer text-amber-700 dark:text-amber-500">
+						{warnings.length} state{warnings.length === 1 ? "" : "s"} not
+						covered
+					</summary>
+					<ul className="mt-2 space-y-1 text-muted-foreground">
+						{warnings.map((warning) => (
+							<li key={warning}>{warning}</li>
+						))}
+					</ul>
+				</details>
+			)}
 			<form onSubmit={save} className="space-y-3">
 				<Input
 					value={title}

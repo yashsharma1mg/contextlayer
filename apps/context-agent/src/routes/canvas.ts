@@ -34,6 +34,7 @@ import { searchMemories } from "../lib/search"
 import {
 	type UiPlan,
 	uiPlanSchema,
+	uiPlanStateWarnings,
 	validateUiPlan,
 	validateUiPlanCitations,
 } from "../lib/ui-plan"
@@ -1358,6 +1359,9 @@ canvasRoute.post(
 		let uiPlan: UiPlan | undefined
 		let generatedFiles: { path: string; content: string }[] | undefined
 		let approvedImportPaths: string[] = []
+		// Advisory only — missing state coverage rides along on the artifact
+		// rather than rejecting an otherwise valid plan.
+		let planWarnings: string[] = []
 		if (kind === "react_prototype") {
 			if (!project.pinnedDesignSystemVersionId) {
 				return c.json(
@@ -1427,6 +1431,7 @@ canvasRoute.post(
 				mappedAssets,
 				project.pinnedDesignSystemVersionId,
 			)
+			planWarnings = uiPlanStateWarnings(uiPlan)
 			const citationIds = [
 				...new Set(uiPlan.citations.map((item) => item.documentId)),
 			]
@@ -1602,7 +1607,7 @@ canvasRoute.post(
 					y: 120 + input.selectedNodeIds.length * 36,
 					width: kind === "react_prototype" ? 520 : 380,
 					height: kind === "react_prototype" ? 460 : 280,
-					data: { artifactKind: kind, codeFormat },
+					data: { artifactKind: kind, codeFormat, planWarnings },
 				})
 				.returning()
 			return { idea, node }
