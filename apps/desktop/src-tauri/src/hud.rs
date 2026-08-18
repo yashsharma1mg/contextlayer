@@ -252,6 +252,29 @@ pub fn expand(window: &WebviewWindow) {
     }
 }
 
+/// Shrinks the expanded frame to the height the page actually renders.
+///
+/// The panel is content-sized, so a fixed expanded height leaves a tall
+/// transparent strip beneath it. That strip is invisible but still swallows
+/// mouse events, so clicks meant for the app underneath would hit the HUD
+/// instead. The page measures itself and calls this.
+pub fn set_content_height(window: &WebviewWindow, height: f64) {
+    if let Some((_, expanded)) = platform::frames() {
+        // A bad measurement must not produce a zero-height or
+        // screen-swallowing window.
+        let height = height.clamp(COLLAPSED_HEIGHT, expanded.height);
+        platform::set_frame(
+            ns_window_of(window),
+            HudFrame {
+                // Keep the pinned top edge; only the bottom moves.
+                y: expanded.y + expanded.height - height,
+                height,
+                ..expanded
+            },
+        );
+    }
+}
+
 /// Grow, show, and take keyboard focus. Only the hotkey path calls this —
 /// hover must never activate the app.
 pub fn focus(window: &WebviewWindow) {
@@ -371,6 +394,11 @@ mod tests {
 #[tauri::command]
 pub fn hud_expand(window: WebviewWindow) {
     expand(&window);
+}
+
+#[tauri::command]
+pub fn hud_content_height(window: WebviewWindow, height: f64) {
+	set_content_height(&window, height);
 }
 
 #[tauri::command]

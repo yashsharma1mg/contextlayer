@@ -267,7 +267,7 @@ function CanvasCard({ data, selected }: NodeProps<CanvasFlowNode>) {
 								record.data.processingError ?? "Capture indexing failed",
 							)}
 						>
-							<X className="size-3.5 text-red-600" />
+							<X className="size-3.5 text-destructive" />
 						</SimpleTooltip>
 					) : (
 						<MonitorUp className="size-3.5 text-orange-500" />
@@ -1383,7 +1383,7 @@ function ContextPanel({
 			>
 				<Plus className="size-3" /> Manage projects
 			</Link>
-			{error && <p className="text-xs text-red-600">{error}</p>}
+			{error && <p className="text-xs text-destructive">{error}</p>}
 		</div>
 	)
 }
@@ -1694,12 +1694,23 @@ function ArtifactPanel({
 	return (
 		<div className="space-y-4">
 			{warnings.length > 0 && (
-				<details className="rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-xs">
-					<summary className="cursor-pointer text-amber-700 dark:text-amber-500">
-						{warnings.length} state{warnings.length === 1 ? "" : "s"} not
-						covered
+				// Advisory, not a failure: the plan generated fine, it just did
+				// not describe these states. Uses the system's score-mid tone
+				// rather than a raw palette amber so it reads as the same
+				// severity language the rest of the app uses.
+				<details className="rounded-[var(--radius-md)] border border-border bg-muted/40 p-2.5 text-xs">
+					<summary
+						className="cursor-pointer list-none font-medium"
+						style={{ color: "var(--creed-score-mid)" }}
+					>
+						{warnings.length} state{warnings.length === 1 ? "" : "s"} left
+						undescribed
 					</summary>
-					<ul className="mt-2 space-y-1 text-muted-foreground">
+					<p className="mt-2 text-muted-foreground">
+						The screen still generated. Add these to the prompt if you want them
+						designed:
+					</p>
+					<ul className="mt-1.5 space-y-1 text-muted-foreground">
 						{warnings.map((warning) => (
 							<li key={warning}>{warning}</li>
 						))}
@@ -1816,7 +1827,7 @@ function ArtifactPanel({
 								approved imports and compilation validated
 							</p>
 							{publicationPreview.errors.map((message) => (
-								<p key={message} className="text-red-600">
+								<p key={message} className="text-destructive">
 									{message}
 								</p>
 							))}
@@ -1841,7 +1852,9 @@ function ArtifactPanel({
 						>
 							<span
 								className={
-									publication.error ? "text-red-600" : "text-muted-foreground"
+									publication.error
+										? "text-destructive"
+										: "text-muted-foreground"
 								}
 							>
 								{publication.error ??
@@ -1885,7 +1898,7 @@ function ArtifactPanel({
 					</div>
 				</div>
 			)}
-			{error && <p className="text-xs text-red-600">{error}</p>}
+			{error && <p className="text-xs text-destructive">{error}</p>}
 		</div>
 	)
 }
@@ -2193,7 +2206,7 @@ function SharePanel({
 					<p className="text-xs text-muted-foreground">No active links.</p>
 				)}
 			</div>
-			{error && <p className="text-xs text-red-600">{error}</p>}
+			{error && <p className="text-xs text-destructive">{error}</p>}
 		</div>
 	)
 }
@@ -2268,7 +2281,7 @@ function HistoryPanel({
 					History checkpoints appear before generation and destructive changes.
 				</p>
 			)}
-			{error && <p className="text-xs text-red-600">{error}</p>}
+			{error && <p className="text-xs text-destructive">{error}</p>}
 		</div>
 	)
 }

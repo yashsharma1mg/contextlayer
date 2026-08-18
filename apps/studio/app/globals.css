@@ -31,9 +31,9 @@
 	--radius-md: 0.75rem;
 	--radius-lg: 0.875rem;
 	--radius-xl: 1rem;
-	--font-sans: var(--font-geist-sans);
+	--font-sans: var(--font-aeonik);
 	--font-mono: var(--font-geist-mono);
-	--font-heading: var(--font-geist-sans);
+	--font-heading: var(--font-aeonik);
 }
 
 :root {
@@ -56,6 +56,20 @@
 	--input: #e6e6e2;
 	--ring: rgba(31, 31, 26, 0.15);
 	--radius: 0.875rem;
+
+	/* Notch HUD. Always dark regardless of the user's theme, because it sits
+	   against the physical notch cutout, so it cannot use the theme-flipping
+	   tokens above. Values mirror the .dark palette so the panel reads as the
+	   same product as the canvas. --hud-surface matches the dark background
+	   rather than the card, so the collapsed bar blends into the cutout. */
+	--hud-surface: #0e0e0d;
+	--hud-raised: #161615;
+	--hud-border: #63635c;
+	--hud-text: #e7e7e2;
+	--hud-text-muted: #9c9c95;
+	--hud-accent: #60a5fa;
+	--hud-positive: #34d399;
+	--hud-danger: #f87171;
 
 	--creed-background: #f9f9f8;
 	--creed-surface: #ffffff;
@@ -193,7 +207,7 @@
 		rgba(249, 249, 248, 0) 46%
 	);
 
-	--font-heading: var(--font-geist-sans);
+	--font-heading: var(--font-aeonik);
 }
 
 /* Notion × Obsidian × Cursor inspired dark mode. Designed around a near-black

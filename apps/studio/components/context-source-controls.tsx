@@ -206,7 +206,8 @@ export function ProviderConsentControls({ canManage }: { canManage: boolean }) {
 				<label key={option.id} className="flex items-start gap-2 py-1 text-xs">
 					<input
 						type="checkbox"
-						className="mt-0.5 size-3.5 accent-blue-600"
+						className="mt-0.5 size-3.5"
+						style={{ accentColor: "var(--creed-accent)" }}
 						checked={enabled[option.id] ?? false}
 						disabled={busy === option.id}
 						onChange={(event) => toggle(option, event.target.checked)}
@@ -224,7 +225,7 @@ export function ProviderConsentControls({ canManage }: { canManage: boolean }) {
 					? "Every configured model runs on this Mac. Nothing is sent anywhere."
 					: "Workspace originals remain on this Mac. Only the boundary shown above is sent."}
 			</p>
-			{error && <p className="text-[10px] text-red-600">{error}</p>}
+			{error && <p className="text-[10px] text-destructive">{error}</p>}
 			{canManage && (
 				<div className="space-y-2 border-t border-border pt-3">
 					<div className="flex items-center justify-between gap-2">
@@ -473,7 +474,7 @@ export function SourceControls<TNode extends { id: string }>({
 								)}
 							</div>
 							{status.health?.lastError && (
-								<p className="mt-1 truncate text-[10px] text-red-600">
+								<p className="mt-1 truncate text-[10px] text-destructive">
 									{status.health.lastError}
 								</p>
 							)}
@@ -603,7 +604,7 @@ export function SourceControls<TNode extends { id: string }>({
 				</div>
 			)}
 			{notice && <p className="text-[10px] text-muted-foreground">{notice}</p>}
-			{error && <p className="text-[10px] text-red-600">{error}</p>}
+			{error && <p className="text-[10px] text-destructive">{error}</p>}
 		</>
 	)
 }

@@ -14,6 +14,11 @@ import { apiGet, apiSend } from "@/lib/api"
  * resized instantly. Everything here animates inside a frame that is already
  * the right size. Hover must never steal focus, so it only asks Rust to grow
  * the frame — taking key status is the hotkey's job alone.
+ *
+ * Colours come from the --hud-* tokens in globals.css. They are fixed rather
+ * than theme-reactive because this panel sits against the physical notch and
+ * is always dark; the values mirror the .dark palette so it reads as the same
+ * product as the canvas.
  */
 
 type Mode = "ambient" | "peek" | "focused" | "working" | "done"
@@ -31,7 +36,9 @@ interface Ambient {
  * browser anyway.
  */
 interface TauriGlobal {
-	core: { invoke: (cmd: string) => Promise<unknown> }
+	core: {
+		invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>
+	}
 	event: {
 		listen: (name: string, cb: () => void) => Promise<() => void>
 	}
@@ -52,6 +59,21 @@ function relativeTime(iso: string | null) {
 	return `${Math.round(hours / 24)}d ago`
 }
 
+/**
+ * The status dot reports state rather than decorating. A light that is always
+ * green says nothing; these are the only four things the HUD can be doing.
+ */
+function dotFor(mode: Mode, error: string | null, ready: boolean) {
+	if (error) return { color: "var(--hud-danger)", label: "Generation failed" }
+	if (mode === "working")
+		return { color: "var(--hud-accent)", label: "Generating" }
+	if (mode === "done")
+		return { color: "var(--hud-positive)", label: "Added to the canvas" }
+	return ready
+		? { color: "var(--hud-text-muted)", label: "Idle" }
+		: { color: "var(--hud-border)", label: "No project yet" }
+}
+
 export default function HudPage() {
 	const [mode, setMode] = useState<Mode>("ambient")
 	const [ambient, setAmbient] = useState<Ambient | null>(null)
@@ -59,14 +81,18 @@ export default function HudPage() {
 	const [status, setStatus] = useState<string | null>(null)
 	const [error, setError] = useState<string | null>(null)
 	const inputRef = useRef<HTMLInputElement>(null)
+	const panelRef = useRef<HTMLDivElement>(null)
 
 	const expanded = mode !== "ambient"
 
-	const send = useCallback((command: string) => {
-		tauri()
-			?.core.invoke(command)
-			.catch(() => undefined)
-	}, [])
+	const send = useCallback(
+		(command: string, args?: Record<string, unknown>) => {
+			tauri()
+				?.core.invoke(command, args)
+				.catch(() => undefined)
+		},
+		[],
+	)
 
 	const dismiss = useCallback(() => {
 		setMode("ambient")
@@ -167,7 +193,27 @@ export default function HudPage() {
 		}
 	}
 
+	/**
+	 * Report the panel's real height so Rust can shrink the window to match.
+	 * A fixed expanded frame leaves a transparent strip below the panel that
+	 * still swallows clicks meant for the app underneath.
+	 */
+	useEffect(() => {
+		const panel = panelRef.current
+		if (!panel || !expanded) return
+		const report = () =>
+			send("hud_content_height", {
+				height: Math.ceil(panel.getBoundingClientRect().height),
+			})
+		report()
+		const observer = new ResizeObserver(report)
+		observer.observe(panel)
+		return () => observer.disconnect()
+	}, [expanded, send])
+
 	const recency = relativeTime(ambient?.updatedAt ?? null)
+	const ready = !!ambient?.projectId
+	const dot = dotFor(mode, error, ready)
 
 	return (
 		// Hover is an affordance, not the only way in: the global ⌥Space hotkey
@@ -187,27 +233,56 @@ export default function HudPage() {
 				send("hud_collapse")
 			}}
 		>
-			{/* Transparent window: the page paints the panel, nothing else. */}
-			<style>
-				{"html,body{margin:0;background:transparent;overflow:hidden}"}
-			</style>
+			{/*
+			  Transparent window: the page paints the panel and nothing else.
+			  The caret and selection are themed here because browser defaults
+			  belong to no design system, and both are visible in the input.
+			*/}
+			<style>{`
+				html, body { margin: 0; background: transparent; overflow: hidden; }
+				.hud-input { caret-color: var(--hud-accent); }
+				.hud-input::selection { background: color-mix(in oklab, var(--hud-accent) 35%, transparent); color: var(--hud-text); }
+				.hud-input::placeholder { color: var(--hud-text-muted); }
+				@keyframes hud-pulse { 50% { opacity: 0.35; } }
+				.hud-dot-working { animation: hud-pulse 1.4s ease-in-out infinite; }
+				@media (prefers-reduced-motion: reduce) {
+					.hud-panel { transition: none !important; }
+					.hud-dot-working { animation: none; }
+				}
+			`}</style>
 
 			<div
-				className={`w-full overflow-hidden rounded-b-[30px] bg-[#101211] text-[#f4f5f6] transition-all duration-200 ease-out ${
-					expanded
-						? "max-h-screen px-[18px] pt-[10px] pb-4"
-						: "max-h-[38px] px-[14px] py-[6px]"
-				}`}
+				ref={panelRef}
+				className="hud-panel w-full overflow-hidden rounded-b-[30px] transition-[max-height,padding] duration-200 ease-out"
+				style={{
+					background: "var(--hud-surface)",
+					color: "var(--hud-text)",
+					maxHeight: expanded ? "100vh" : "38px",
+					padding: expanded ? "10px 18px 16px" : "6px 14px",
+				}}
 			>
 				<div className="flex h-[26px] items-center gap-2 whitespace-nowrap text-xs">
-					<span className="size-[7px] shrink-0 rounded-full bg-emerald-400" />
-					<span className="font-medium">
+					<span
+						aria-hidden
+						className={`size-[7px] shrink-0 rounded-full ${
+							mode === "working" ? "hud-dot-working" : ""
+						}`}
+						style={{ background: dot.color }}
+					/>
+					{/* The dot is decorative; screen readers get the state as text. */}
+					<span className="sr-only" role="status">
+						{dot.label}
+					</span>
+					<span className="min-w-0 truncate font-medium">
 						{ambient?.projectName ?? "Context Layer"}
 					</span>
 					{!expanded && ambient?.artifactTitle && (
-						<span className="overflow-hidden text-ellipsis text-[#8b9199]">
+						<span
+							className="min-w-0 truncate"
+							style={{ color: "var(--hud-text-muted)" }}
+						>
 							{ambient.artifactTitle}
-							{recency && <span className="text-[#6b7178]"> · {recency}</span>}
+							{recency && <span> · {recency}</span>}
 						</span>
 					)}
 				</div>
@@ -215,28 +290,68 @@ export default function HudPage() {
 				{expanded && (
 					<div className="pt-2.5">
 						<form onSubmit={submit}>
+							<label className="sr-only" htmlFor="hud-prompt">
+								Describe a screen to generate
+							</label>
 							<input
+								id="hud-prompt"
 								ref={inputRef}
 								value={prompt}
 								onChange={(event) => setPrompt(event.target.value)}
 								placeholder="Describe a screen to generate…"
 								disabled={mode === "working"}
-								className="w-full select-text rounded-[10px] border border-[#24272a] bg-[#171918] px-3 py-2.5 text-[13px] text-[#f4f5f6] outline-none focus:border-[#2f6df6]"
+								aria-describedby={error ? "hud-error" : undefined}
+								aria-invalid={error ? true : undefined}
+								className="hud-input w-full select-text rounded-[10px] border px-3 py-2.5 text-[13px] outline-none transition-colors disabled:opacity-60 focus-visible:ring-2"
+								style={{
+									background: "var(--hud-raised)",
+									borderColor: error
+										? "var(--hud-danger)"
+										: "var(--hud-border)",
+									color: "var(--hud-text)",
+									// biome-ignore lint/style/useNamingConvention: CSS custom property
+									["--tw-ring-color" as string]: "var(--hud-accent)",
+								}}
 							/>
 						</form>
+
 						{ambient?.artifactTitle && (
-							<p className="mt-2 text-[11px] text-[#6b7178]">
+							<p
+								className="mt-2 truncate text-[11px]"
+								style={{ color: "var(--hud-text-muted)" }}
+							>
 								Last: {ambient.artifactTitle}
 								{recency ? ` · ${recency}` : ""}
 							</p>
 						)}
 						{status && (
-							<p className="mt-2 text-[11px] text-emerald-400">{status}</p>
+							<p
+								className="mt-2 text-[11px]"
+								style={{
+									color:
+										mode === "done"
+											? "var(--hud-positive)"
+											: "var(--hud-text-muted)",
+								}}
+							>
+								{status}
+							</p>
 						)}
-						{error && <p className="mt-2 text-[11px] text-red-400">{error}</p>}
-						{!ambient?.projectId && (
-							<p className="mt-2 text-[11px] text-red-400">
-								Create a project in Context Layer first.
+						{error && (
+							<p
+								id="hud-error"
+								className="mt-2 text-[11px]"
+								style={{ color: "var(--hud-danger)" }}
+							>
+								{error}. Press Enter to try again.
+							</p>
+						)}
+						{!ready && (
+							<p
+								className="mt-2 text-[11px]"
+								style={{ color: "var(--hud-text-muted)" }}
+							>
+								Open Context Layer and create a project first.
 							</p>
 						)}
 					</div>
