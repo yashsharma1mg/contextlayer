@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-hud-content-height"
+description = "Enables the hud_content_height command without any pre-configured scope."
+commands.allow = ["hud_content_height"]
+
+[[permission]]
+identifier = "deny-hud-content-height"
+description = "Denies the hud_content_height command without any pre-configured scope."
+commands.deny = ["hud_content_height"]
