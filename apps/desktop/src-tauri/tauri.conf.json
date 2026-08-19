@@ -33,7 +33,8 @@
 			"binaries/context-agent",
 			"binaries/studio",
 			"binaries/prototype-compiler",
-			"binaries/media-extractor"
+			"binaries/media-extractor",
+			"binaries/screen-agent"
 		],
 		"resources": [
 			"resources/migrations",

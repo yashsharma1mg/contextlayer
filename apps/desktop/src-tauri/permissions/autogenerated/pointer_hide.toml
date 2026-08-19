@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-pointer-hide"
+description = "Enables the pointer_hide command without any pre-configured scope."
+commands.allow = ["pointer_hide"]
+
+[[permission]]
+identifier = "deny-pointer-hide"
+description = "Denies the pointer_hide command without any pre-configured scope."
+commands.deny = ["pointer_hide"]

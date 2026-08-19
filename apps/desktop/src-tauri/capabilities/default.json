@@ -13,6 +13,12 @@
 	"permissions": [
 		"core:default",
 		"allow-hud-visible",
-		"allow-hud-set-visible"
+		"allow-hud-set-visible",
+		"allow-pointer-show",
+		"allow-pointer-hide",
+		"allow-screen-permissions",
+		"allow-screen-capture",
+		"allow-screen-element",
+		"allow-screen-copy-mode"
 	]
 }

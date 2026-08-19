@@ -21,6 +21,12 @@
 		"allow-hud-expand",
 		"allow-hud-content-height",
 		"allow-hud-collapse",
-		"allow-hud-dismiss"
+		"allow-hud-dismiss",
+		"allow-pointer-show",
+		"allow-pointer-hide",
+		"allow-screen-permissions",
+		"allow-screen-capture",
+		"allow-screen-element",
+		"allow-screen-copy-mode"
 	]
 }

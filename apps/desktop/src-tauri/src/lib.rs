@@ -12,6 +12,8 @@ use std::{
 use tauri::{Emitter, Manager, RunEvent};
 
 mod hud;
+mod pointer;
+mod screen;
 
 struct Runtime {
     children: Arc<Mutex<Vec<Child>>>,
@@ -486,8 +488,15 @@ pub fn run() {
     };
     let app = tauri::Builder::default()
         .manage(runtime)
+        .manage(pointer::PointerState::default())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            screen::screen_permissions,
+            screen::screen_capture,
+            screen::screen_element,
+            screen::screen_copy_mode,
+            pointer::pointer_show,
+            pointer::pointer_hide,
             hud::hud_visible,
             hud::hud_set_visible,
             hud::hud_expand,
@@ -516,6 +525,9 @@ pub fn run() {
                     move || {
                         if let Err(error) = hud::create(&handle) {
                             eprintln!("Context Layer HUD failed to start: {error}");
+                        }
+                        if let Err(error) = pointer::create(&handle) {
+                            eprintln!("Context Layer pointer failed to start: {error}");
                         }
                     }
                 });

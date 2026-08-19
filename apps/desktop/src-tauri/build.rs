@@ -13,6 +13,12 @@ fn main() {
                 "hud_content_height",
                 "hud_collapse",
                 "hud_dismiss",
+                "screen_permissions",
+                "screen_capture",
+                "screen_element",
+                "screen_copy_mode",
+                "pointer_show",
+                "pointer_hide",
             ]),
         ),
     )

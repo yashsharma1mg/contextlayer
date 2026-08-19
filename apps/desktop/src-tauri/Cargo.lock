@@ -335,10 +335,13 @@ dependencies = [
 name = "context-layer-desktop"
 version = "0.1.0"
 dependencies = [
+ "block2",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
  "rand",
+ "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-global-shortcut",
