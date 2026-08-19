@@ -504,6 +504,22 @@ pub fn run() {
             hud::hud_collapse,
             hud::hud_dismiss
         ])
+        .on_window_event(|window, event| {
+            // Closing the canvas hides it rather than destroying it.
+            //
+            // Destroying it left the app running with only a hidden HUD, no
+            // window to come back to, and nothing that would recreate one —
+            // indistinguishable from the app having died. Hiding keeps the
+            // runtime and the HUD alive, and RunEvent::Reopen below brings the
+            // canvas back. Cmd-Q still quits properly, since that is Exit
+            // rather than a window close.
+            if window.label() == "main" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .setup(move |app| {
             let handle = app.handle().clone();
             let children = children.clone();
@@ -539,8 +555,19 @@ pub fn run() {
         .expect("error while building Context Layer");
 
     app.run(|app, event| {
-        if matches!(event, RunEvent::Exit | RunEvent::ExitRequested { .. }) {
-            terminate_all(&app.state::<Runtime>().children);
+        match event {
+            // Clicking the Dock icon with the canvas hidden. Without this the
+            // icon is inert and the app looks dead while it is running fine.
+            RunEvent::Reopen { .. } => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+            RunEvent::Exit | RunEvent::ExitRequested { .. } => {
+                terminate_all(&app.state::<Runtime>().children);
+            }
+            _ => {}
         }
     });
 }
