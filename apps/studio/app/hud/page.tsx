@@ -164,17 +164,18 @@ export default function HudPage() {
 	}, [loadAmbient])
 
 	/**
-	 * Put the window back to collapsed on mount.
+	 * The frame follows the state, declaratively.
 	 *
-	 * React starts in `ambient`, but the frame is owned by Rust and survives a
-	 * reload — so a page that reloads while expanded comes back rendering the
-	 * collapsed pill inside a 640pt window: a wide black bar across the top of
-	 * the screen with a single line in it. The frame has to be told, not
-	 * assumed.
+	 * Firing expand/collapse from the hover handlers meant any path that
+	 * changed mode another way — mount, Escape, a failed generation — left the
+	 * window disagreeing with what was drawn in it. That is how it ended up
+	 * 640pt wide showing the collapsed pill. Deriving it from `expanded`
+	 * instead makes every transition self-healing, including the first render
+	 * after a reload.
 	 */
 	useEffect(() => {
-		send("hud_collapse")
-	}, [send])
+		send(expanded ? "hud_expand" : "hud_collapse")
+	}, [expanded, send])
 
 	// The hotkey focuses. Hover only ever peeks.
 	useEffect(() => {
@@ -234,10 +235,23 @@ export default function HudPage() {
 	useEffect(() => {
 		const panel = panelRef.current
 		if (!panel || !expanded) return
-		const report = () =>
-			send("hud_content_height", {
-				height: Math.ceil(panel.getBoundingClientRect().height),
-			})
+		// The observer fires repeatedly while content settles — fonts loading,
+		// ambient data arriving — which was a dozen window resizes per expand.
+		// Only forward a real change.
+		let last = 0
+		const report = () => {
+			// scrollHeight, not the bounding box: the panel is clipped by the
+			// window, and the window is sized from this number. Measuring the
+			// clipped box means the window can only report its own current
+			// height back to itself, so once it read the collapsed height it
+			// could never grow again — the panel stuck open 640pt wide and
+			// 46pt tall. scrollHeight is the content's real height regardless
+			// of clipping, which breaks that loop.
+			const height = Math.ceil(panel.scrollHeight)
+			if (Math.abs(height - last) < 2) return
+			last = height
+			send("hud_content_height", { height })
+		}
 		report()
 		const observer = new ResizeObserver(report)
 		observer.observe(panel)
@@ -276,13 +290,11 @@ export default function HudPage() {
 			onMouseEnter={() => {
 				if (mode !== "ambient") return
 				setMode("peek")
-				send("hud_expand")
 			}}
 			onMouseLeave={() => {
 				// Once the panel owns the keyboard, leaving must not close it.
 				if (mode !== "peek") return
 				setMode("ambient")
-				send("hud_collapse")
 			}}
 		>
 			{/*
@@ -309,7 +321,10 @@ export default function HudPage() {
 				style={{
 					background: "var(--hud-surface)",
 					color: "var(--hud-text)",
-					maxHeight: expanded ? "100vh" : "46px",
+					// A fixed ceiling rather than 100vh: 100vh *is* the window, so
+					// clamping to it would re-create the loop above. 320 is past
+					// anything the panel renders and above the frame Rust allows.
+					maxHeight: expanded ? "320px" : "46px",
 					padding: expanded ? "10px 18px 16px" : "0",
 				}}
 			>
