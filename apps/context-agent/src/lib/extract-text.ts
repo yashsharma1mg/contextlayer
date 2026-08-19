@@ -174,7 +174,7 @@ async function xlsxSections(buffer: Buffer) {
 	return sections
 }
 
-async function describeImage(
+export async function describeImage(
 	data: Buffer,
 	mimeType: string,
 	signal?: AbortSignal,

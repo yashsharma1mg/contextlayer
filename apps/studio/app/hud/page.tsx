@@ -23,6 +23,19 @@ import { apiGet, apiSend } from "@/lib/api"
 
 type Mode = "ambient" | "peek" | "focused" | "working" | "done"
 
+/**
+ * Same set and labels as the canvas composer, so the two surfaces do not drift
+ * into different vocabularies for the same thing.
+ */
+const KINDS = [
+	{ value: "auto", label: "Auto" },
+	{ value: "brief", label: "Brief" },
+	{ value: "user_flow", label: "Flow" },
+	{ value: "ux_review", label: "Review" },
+	{ value: "interface_spec", label: "Spec" },
+	{ value: "react_prototype", label: "Prototype" },
+] as const
+
 interface Ambient {
 	projectId: string | null
 	projectName: string | null
@@ -37,7 +50,10 @@ interface Ambient {
  */
 interface TauriGlobal {
 	core: {
-		invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>
+		invoke: <T = unknown>(
+			cmd: string,
+			args?: Record<string, unknown>,
+		) => Promise<T>
 	}
 	event: {
 		listen: (name: string, cb: () => void) => Promise<() => void>
@@ -80,6 +96,8 @@ export default function HudPage() {
 	const [prompt, setPrompt] = useState("")
 	const [status, setStatus] = useState<string | null>(null)
 	const [error, setError] = useState<string | null>(null)
+	const [kind, setKind] = useState<string>("auto")
+	const [screenshot, setScreenshot] = useState<string | null>(null)
 	const inputRef = useRef<HTMLInputElement>(null)
 	const panelRef = useRef<HTMLDivElement>(null)
 
@@ -99,6 +117,7 @@ export default function HudPage() {
 		setPrompt("")
 		setStatus(null)
 		setError(null)
+		setScreenshot(null)
 		send("hud_dismiss")
 	}, [send])
 
@@ -179,7 +198,8 @@ export default function HudPage() {
 		try {
 			await apiSend("POST", `/api/projects/${ambient.projectId}/generate`, {
 				prompt,
-				kind: "auto",
+				kind,
+				screenshot: screenshot ?? undefined,
 			})
 			setStatus("Added to the canvas")
 			setMode("done")
@@ -210,6 +230,25 @@ export default function HudPage() {
 		observer.observe(panel)
 		return () => observer.disconnect()
 	}, [expanded, send])
+
+	/** Grab the screen so the prompt can refer to what the user is looking at. */
+	async function seeScreen() {
+		const api = tauri()
+		if (!api) return
+		setError(null)
+		setStatus("Reading the screen…")
+		try {
+			const shot = await api.core.invoke<{ path: string }>("screen_capture")
+			// The route takes a file name, not a path — it derives the directory
+			// itself so a client cannot point it at arbitrary files.
+			setScreenshot(shot.path.split("/").pop() ?? null)
+			setStatus("Screen attached")
+		} catch (cause) {
+			setScreenshot(null)
+			setStatus(null)
+			setError(cause instanceof Error ? cause.message : String(cause))
+		}
+	}
 
 	const recency = relativeTime(ambient?.updatedAt ?? null)
 	const ready = !!ambient?.projectId
@@ -300,6 +339,18 @@ export default function HudPage() {
 								onChange={(event) => setPrompt(event.target.value)}
 								placeholder="Describe a screen to generate…"
 								disabled={mode === "working"}
+								onKeyDown={(event) => {
+									// Tab cycles the kind rather than moving focus: there is
+									// nowhere else in this panel worth tabbing to, and the
+									// prompt should never lose the caret mid-thought.
+									if (event.key !== "Tab") return
+									event.preventDefault()
+									const index = KINDS.findIndex((k) => k.value === kind)
+									const next = event.shiftKey
+										? (index - 1 + KINDS.length) % KINDS.length
+										: (index + 1) % KINDS.length
+									setKind(KINDS[next]?.value ?? "auto")
+								}}
 								aria-describedby={error ? "hud-error" : undefined}
 								aria-invalid={error ? true : undefined}
 								className="hud-input w-full select-text rounded-[10px] border px-3 py-2.5 text-[13px] outline-none transition-colors disabled:opacity-60 focus-visible:ring-2"
@@ -314,6 +365,68 @@ export default function HudPage() {
 								}}
 							/>
 						</form>
+
+						{/*
+						  Kind row. Tab cycles it from the input, so the chips are a
+						  readout of where you are rather than the only way to change
+						  it — clicking still works for a pointer user.
+						*/}
+						<div className="mt-2 flex flex-wrap items-center gap-1">
+							{KINDS.map((option) => {
+								const active = option.value === kind
+								return (
+									<button
+										key={option.value}
+										type="button"
+										onClick={() => setKind(option.value)}
+										className="rounded-md px-1.5 py-0.5 text-[10px] transition-colors"
+										style={{
+											background: active ? "var(--hud-raised)" : "transparent",
+											color: active
+												? "var(--hud-text)"
+												: "var(--hud-text-muted)",
+										}}
+									>
+										{option.label}
+									</button>
+								)
+							})}
+							<span
+								className="ml-auto text-[10px]"
+								style={{ color: "var(--hud-text-muted)" }}
+							>
+								Tab
+							</span>
+						</div>
+
+						<div className="mt-2 flex items-center gap-1.5">
+							<button
+								type="button"
+								onClick={seeScreen}
+								disabled={mode === "working"}
+								className="rounded-md px-2 py-1 text-[10px] transition-colors disabled:opacity-50"
+								style={{
+									background: screenshot ? "var(--hud-raised)" : "transparent",
+									color: screenshot
+										? "var(--hud-positive)"
+										: "var(--hud-text-muted)",
+									border: "1px solid var(--hud-border)",
+								}}
+							>
+								{screenshot ? "Screen attached" : "See my screen"}
+							</button>
+							<button
+								type="button"
+								onClick={() => send("screen_copy_mode")}
+								className="rounded-md px-2 py-1 text-[10px] transition-colors"
+								style={{
+									color: "var(--hud-text-muted)",
+									border: "1px solid var(--hud-border)",
+								}}
+							>
+								Copy anything
+							</button>
+						</div>
 
 						{ambient?.artifactTitle && (
 							<p

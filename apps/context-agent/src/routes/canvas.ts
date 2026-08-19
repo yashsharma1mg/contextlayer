@@ -24,6 +24,9 @@ import { and, asc, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm"
 import { Hono } from "hono"
 import { z } from "zod"
 import { createHash, randomBytes } from "node:crypto"
+import { readFile } from "node:fs/promises"
+import { homedir } from "node:os"
+import { basename, join } from "node:path"
 import { requireCaller } from "../lib/caller"
 import { documentVisibility } from "../lib/access-policy"
 import { artifactKinds, resolveArtifactKind } from "../lib/generation-routing"
@@ -39,6 +42,8 @@ import {
 	validateUiPlanCitations,
 } from "../lib/ui-plan"
 import { validateGeneratedFiles } from "../lib/prototype-validation"
+import { describeImage } from "../lib/extract-text"
+import { requireProviderConsent } from "../lib/provider-consent"
 import { redactCaptureOutline } from "../lib/capture-redaction"
 import { enqueueCaptureIngestion } from "../lib/capture-ingestion"
 import { readObject, storeObject } from "../lib/local-storage"
@@ -1259,6 +1264,14 @@ const generateSchema = z.object({
 	prompt: z.string().trim().min(1).max(8_000),
 	kind: z.enum([...artifactKinds, "auto"]).default("auto"),
 	selectedNodeIds: z.array(z.string()).max(30).default([]),
+	// A capture the HUD took, named rather than pathed: the file name is
+	// matched against the shape the desktop shell writes, and the directory is
+	// derived here. Accepting a caller-supplied path would let any client read
+	// any file on disk through this route.
+	screenshot: z
+		.string()
+		.regex(/^screen-\d{10,17}\.png$/)
+		.optional(),
 })
 
 const structuredArtifactSchema = z.object({
@@ -1282,6 +1295,48 @@ canvasRoute.post(
 		const project = access.project
 		const input = c.req.valid("json")
 		const kind = resolveArtifactKind(input.prompt, input.kind)
+
+		/**
+		 * A HUD capture becomes grounding text rather than being passed as an
+		 * image: the plan path uses generateObject with a text prompt, and a
+		 * description is also what the artifact's own provenance should record.
+		 *
+		 * Consent is the media purpose, not generation — describing a capture
+		 * sends a picture of the user's screen to a remote provider, which is a
+		 * bigger disclosure than the prompt text and deserves its own grant.
+		 */
+		let screenContext = ""
+		if (input.screenshot) {
+			await requireProviderConsent({
+				orgId: caller.orgId,
+				userId: caller.userId,
+				provider: "openrouter",
+				purpose: "media",
+			})
+			const file = join(
+				process.env.CONTEXT_LAYER_DATA_DIR ??
+					join(homedir(), "Library", "Application Support", "Context Layer"),
+				"captures",
+				// Already constrained by the schema; basename is belt and braces
+				// against a pattern change later loosening it.
+				basename(input.screenshot),
+			)
+			try {
+				const bytes = await readFile(file)
+				const described = await describeImage(bytes, "image/png")
+				screenContext = `\n\nWhat is currently on the user's screen:\n${described}`
+			} catch (error) {
+				return c.json(
+					{
+						error:
+							error instanceof Error
+								? `Could not read the screen capture: ${error.message}`
+								: "Could not read the screen capture",
+					},
+					422,
+				)
+			}
+		}
 		const canvas = await canvasForProject(project.id)
 		const selected = input.selectedNodeIds.length
 			? await db
@@ -1492,7 +1547,7 @@ canvasRoute.post(
 					schema: uiPlanSchema,
 					system:
 						"Create an evidence-grounded UI plan pinned to the supplied manifest version. Use only approved asset IDs, component IDs, props, variants, and tokens. Explicitly cover permission, loading, empty, validation, error, retry, quota, and recovery states. Cite supplied document IDs.",
-					prompt: `Pinned manifest version: ${project.pinnedDesignSystemVersionId}\n\nCanvas context:\n${selectedContext || "(none selected)"}\n\nKnowledge with citation IDs:\n${knowledge || "(no matching knowledge)"}\n\nApproved design assets:\n${JSON.stringify(approvedAssets)}\n\nRequired citations:\n${JSON.stringify(grounding.map((source) => ({ documentId: source.documentId, title: source.title })))}\n\nRequest: ${input.prompt}`,
+					prompt: `Pinned manifest version: ${project.pinnedDesignSystemVersionId}\n\nCanvas context:\n${selectedContext || "(none selected)"}\n\nKnowledge with citation IDs:\n${knowledge || "(no matching knowledge)"}\n\nApproved design assets:\n${JSON.stringify(approvedAssets)}\n\nRequired citations:\n${JSON.stringify(grounding.map((source) => ({ documentId: source.documentId, title: source.title })))}${screenContext}\n\nRequest: ${input.prompt}`,
 				}),
 			)
 			const errors = validateUiPlan(
@@ -1526,7 +1581,7 @@ canvasRoute.post(
 					schema: structuredArtifactSchema,
 					system:
 						"You are a product design collaborator. Produce a practical, evidence-grounded artifact. Always address missing requirements, permissions, loading, empty, error, validation, retry, quota, and recovery states where relevant.",
-					prompt: `Artifact type: ${kind}\n\nCanvas context:\n${selectedContext || "(none selected)"}\n\nKnowledge:\n${knowledge || "(no matching knowledge)"}\n\nRequest: ${input.prompt}`,
+					prompt: `Artifact type: ${kind}\n\nCanvas context:\n${selectedContext || "(none selected)"}\n\nKnowledge:\n${knowledge || "(no matching knowledge)"}${screenContext}\n\nRequest: ${input.prompt}`,
 				}),
 			)
 			title = object.title

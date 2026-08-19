@@ -75,10 +75,19 @@ pub fn screen_permissions() -> Result<Permissions, String> {
 /// vision model.
 #[tauri::command]
 pub fn screen_capture(app: AppHandle) -> Result<Capture, String> {
-    let directory = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| error.to_string())?
+    // The same directory the rest of the runtime uses, not Tauri's
+    // identifier-based app_data_dir: the agent is a separate process and looks
+    // for captures relative to CONTEXT_LAYER_DATA_DIR.
+    let directory = std::env::var_os("CONTEXT_LAYER_DATA_DIR")
+        .map(PathBuf::from)
+        .unwrap_or(
+            app.path()
+                .home_dir()
+                .map_err(|error| error.to_string())?
+                .join("Library")
+                .join("Application Support")
+                .join("Context Layer"),
+        )
         .join("captures");
     std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
     let path = directory.join(format!(
