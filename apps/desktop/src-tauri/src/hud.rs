@@ -22,9 +22,13 @@
 
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, WebviewWindow};
 
-/// Collapsed height. Slightly taller than the notch itself so the rounded
-/// bottom corners are visible below the cutout.
-const COLLAPSED_HEIGHT: f64 = 38.0;
+/// Collapsed height.
+///
+/// The notch itself is ~32pt, and anything drawn inside that band sits behind
+/// the physical camera housing where nobody can read it. This leaves a usable
+/// strip below the cutout for the one thing the collapsed state shows — the
+/// status dot — without becoming a black tab hanging off the top of the screen.
+const COLLAPSED_HEIGHT: f64 = 46.0;
 /// Collapsed width used when the display has no notch to match.
 const FALLBACK_COLLAPSED_WIDTH: f64 = 220.0;
 /// Inset from the screen edge in the no-notch fallback.

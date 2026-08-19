@@ -163,6 +163,19 @@ export default function HudPage() {
 		loadAmbient()
 	}, [loadAmbient])
 
+	/**
+	 * Put the window back to collapsed on mount.
+	 *
+	 * React starts in `ambient`, but the frame is owned by Rust and survives a
+	 * reload — so a page that reloads while expanded comes back rendering the
+	 * collapsed pill inside a 640pt window: a wide black bar across the top of
+	 * the screen with a single line in it. The frame has to be told, not
+	 * assumed.
+	 */
+	useEffect(() => {
+		send("hud_collapse")
+	}, [send])
+
 	// The hotkey focuses. Hover only ever peeks.
 	useEffect(() => {
 		const api = tauri()
@@ -296,11 +309,23 @@ export default function HudPage() {
 				style={{
 					background: "var(--hud-surface)",
 					color: "var(--hud-text)",
-					maxHeight: expanded ? "100vh" : "38px",
-					padding: expanded ? "10px 18px 16px" : "6px 14px",
+					maxHeight: expanded ? "100vh" : "46px",
+					padding: expanded ? "10px 18px 16px" : "0",
 				}}
 			>
-				<div className="flex h-[26px] items-center gap-2 whitespace-nowrap text-xs">
+				{/*
+				  Collapsed, the panel spans the notch, and anything drawn in the
+				  top ~32pt is behind the camera housing. So the ambient state is
+				  the dot alone, pushed into the strip below the cutout; the name
+				  and the rest only appear once there is room for them.
+				*/}
+				<div
+					className={
+						expanded
+							? "flex h-[26px] items-center gap-2 whitespace-nowrap text-xs"
+							: "flex h-full items-end justify-center pb-1"
+					}
+				>
 					<span
 						aria-hidden
 						className={`size-[7px] shrink-0 rounded-full ${
@@ -312,16 +337,9 @@ export default function HudPage() {
 					<span className="sr-only" role="status">
 						{dot.label}
 					</span>
-					<span className="min-w-0 truncate font-medium">
-						{ambient?.projectName ?? "Context Layer"}
-					</span>
-					{!expanded && ambient?.artifactTitle && (
-						<span
-							className="min-w-0 truncate"
-							style={{ color: "var(--hud-text-muted)" }}
-						>
-							{ambient.artifactTitle}
-							{recency && <span> · {recency}</span>}
+					{expanded && (
+						<span className="min-w-0 truncate font-medium">
+							{ambient?.projectName ?? "Context Layer"}
 						</span>
 					)}
 				</div>
