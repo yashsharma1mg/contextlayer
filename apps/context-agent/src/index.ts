@@ -45,6 +45,7 @@ import {
 } from "./routes/mcp"
 import { memoriesRoute } from "./routes/memories"
 import { privacyRoute } from "./routes/privacy"
+import { modelAuthRoute } from "./routes/model-auth"
 import { publicationRoute } from "./routes/publication"
 
 const app = new Hono()
@@ -130,6 +131,7 @@ app.route("/api", designSystemsRoute)
 app.route("/api/mcp", mcpTokensRoute)
 app.route("/api/jobs", jobsRoute)
 app.route("/api/privacy", privacyRoute)
+app.route("/api/model-auth", modelAuthRoute)
 app.route("/api", publicationRoute)
 app.route("/mcp", mcpRoute)
 

@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, expect, test } from "bun:test"
+import { mkdtempSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { activeEmbedProvider, embedProviderIsRemote } from "./embeddings"
+import { resetCredentialCache, storeCredential } from "./model-credentials"
 import {
+	anthropicCredential,
 	chatProviderIsRemote,
 	resolveChatProvider,
 	type ChatProviderId,
@@ -16,13 +21,27 @@ const MODEL_ENV = [
 	"OPENAI_API_KEY",
 	"OPENROUTER_API_KEY",
 	"NVIDIA_API_KEY",
+	// Redirected at a scratch directory below: without it, a developer machine
+	// with a populated data directory would make "nothing is configured"
+	// quietly false.
+	"CONTEXT_LAYER_DATA_DIR",
+	"CONNECTION_ENCRYPTION_KEY",
+	// Deleted, never set: with a service name present, `encryptSecret` writes to
+	// the real login Keychain. Tests stay on the AES-GCM path.
+	"CONTEXT_LAYER_KEYCHAIN_SERVICE",
 ] as const
 
 let saved: Record<string, string | undefined> = {}
 
+let scratch = ""
+
 beforeEach(() => {
 	saved = Object.fromEntries(MODEL_ENV.map((k) => [k, process.env[k]]))
 	for (const k of MODEL_ENV) delete process.env[k]
+	scratch = mkdtempSync(join(tmpdir(), "contextlayer-providers-"))
+	process.env.CONTEXT_LAYER_DATA_DIR = join(scratch, "data")
+	process.env.CONNECTION_ENCRYPTION_KEY = "test-encryption-key"
+	resetCredentialCache()
 })
 
 afterEach(() => {
@@ -30,6 +49,7 @@ afterEach(() => {
 		if (saved[k] === undefined) delete process.env[k]
 		else process.env[k] = saved[k]
 	}
+	resetCredentialCache()
 })
 
 test("resolves to null when nothing is configured", () => {
@@ -96,4 +116,41 @@ test("an unknown explicit provider fails loudly rather than falling back", () =>
 
 	process.env.EMBED_PROVIDER = "cohere"
 	expect(() => activeEmbedProvider()).toThrow(/Unknown EMBED_PROVIDER/)
+})
+
+// --- credentials entered in the app ---------------------------------------
+
+test("a key stored in the app selects its provider with no env var set", () => {
+	// The gap this closes: the bundled desktop app passes no model env vars at
+	// all, so before this there was no way to configure a model in the product.
+	storeCredential("openai", "sk-stored")
+	expect(resolveChatProvider()).toBe("openai")
+	expect(chatProviderIsRemote()).toBe(true)
+})
+
+test("an environment key beats a key stored in the app", () => {
+	// Mirrors the CLI's own precedence, so an existing .env or CI setup keeps
+	// behaving exactly as it did after this feature lands.
+	storeCredential("anthropic", "sk-stored")
+	process.env.ANTHROPIC_API_KEY = "sk-env"
+	expect(anthropicCredential()).toEqual({
+		source: "env",
+		kind: "key",
+		value: "sk-env",
+	})
+})
+
+test("an oauth token resolves as oauth, not as a key", () => {
+	// These are mutually exclusive on the wire — x-api-key and a bearer token
+	// together are rejected — so the distinction has to survive resolution.
+	process.env.ANTHROPIC_AUTH_TOKEN = "oauth-token"
+	expect(anthropicCredential()).toEqual({
+		source: "env",
+		kind: "oauth",
+		value: "oauth-token",
+	})
+})
+
+test("no anthropic credential anywhere resolves to null", () => {
+	expect(anthropicCredential()).toBeNull()
 })

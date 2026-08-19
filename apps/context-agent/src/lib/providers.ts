@@ -1,6 +1,7 @@
 import { createAnthropic } from "@ai-sdk/anthropic"
 import { createOpenAI } from "@ai-sdk/openai"
 import type { LanguageModel } from "ai"
+import { hasCredential, readCredential } from "./model-credentials"
 
 /**
  * Chat/generation provider resolution.
@@ -29,19 +30,65 @@ interface ChatProvider {
 }
 
 /**
+ * Where a provider's credential came from. Environment first, so an existing
+ * .env or CI setup keeps behaving exactly as it did, then a key entered in the
+ * app.
+ */
+export type CredentialSource = "env" | "stored"
+
+type AnthropicCredential =
+	| { source: CredentialSource; kind: "key"; value: string }
+	| { source: CredentialSource; kind: "oauth"; value: string }
+
+/**
  * Anthropic accepts either an API key (`x-api-key`) or an OAuth access token
  * (`Authorization: Bearer` plus the oauth beta header). They are mutually
- * exclusive — sending both is rejected — so the OAuth path strips the API-key
- * header the SDK would otherwise attach.
+ * exclusive — sending both is rejected — so the two are resolved as one choice
+ * rather than layered.
  */
-function anthropicModel(): LanguageModel {
-	const oauthToken = process.env.ANTHROPIC_AUTH_TOKEN
-	const model = process.env.ANTHROPIC_CHAT_MODEL ?? "claude-opus-5"
+export function anthropicCredential(): AnthropicCredential | null {
+	const key = process.env.ANTHROPIC_API_KEY
+	if (key) return { source: "env", kind: "key", value: key }
+	const token = process.env.ANTHROPIC_AUTH_TOKEN
+	if (token) return { source: "env", kind: "oauth", value: token }
+	const stored = readCredential("anthropic")
+	if (stored) return { source: "stored", kind: "key", value: stored }
+	return null
+}
 
-	if (!oauthToken) {
-		return createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY })(model)
+function openAiKey(): string | null {
+	return process.env.OPENAI_API_KEY || readCredential("openai")
+}
+
+function openRouterKey(): string | null {
+	return process.env.OPENROUTER_API_KEY || readCredential("openrouter")
+}
+
+function anthropicModel(): LanguageModel {
+	const model = process.env.ANTHROPIC_CHAT_MODEL ?? "claude-opus-5"
+	const credential = anthropicCredential()
+
+	if (!credential) {
+		throw new Error(
+			"Anthropic is not configured. Add an API key in Context sources, or set ANTHROPIC_API_KEY.",
+		)
+	}
+	if (credential.kind === "key") {
+		return createAnthropic({ apiKey: credential.value })(model)
 	}
 
+	return anthropicOauth(credential.value)(model)
+}
+
+/**
+ * The OAuth wire format: a bearer token, with the API-key header the SDK would
+ * otherwise attach removed — sending both is rejected.
+ *
+ * ANTHROPIC_AUTH_TOKEN is for routing through an LLM gateway or proxy that
+ * authenticates with bearer tokens. The oauth beta header is harmless on tokens
+ * that do not need it and required by some that do, so it is always sent.
+ */
+function anthropicOauth(oauthToken: string) {
 	return createAnthropic({
 		// Non-empty placeholder: the SDK requires a key to construct, and the
 		// fetch wrapper below removes the header it produces.
@@ -60,7 +107,7 @@ function anthropicModel(): LanguageModel {
 			headers.delete("x-api-key")
 			return fetch(input, { ...init, headers })
 		}) as typeof fetch,
-	})(model)
+	})
 }
 
 function openAiCompatible(
@@ -85,23 +132,27 @@ const CHAT_PROVIDERS: Record<ChatProviderId, ChatProvider> = {
 	anthropic: {
 		configured: () =>
 			Boolean(
-				process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN,
+				process.env.ANTHROPIC_API_KEY ||
+					process.env.ANTHROPIC_AUTH_TOKEN ||
+					hasCredential("anthropic"),
 			),
 		defaultModel: process.env.ANTHROPIC_CHAT_MODEL ?? "claude-opus-5",
 		remote: true,
 		model: anthropicModel,
 	},
 	openai: {
-		configured: () => Boolean(process.env.OPENAI_API_KEY),
+		configured: () =>
+			Boolean(process.env.OPENAI_API_KEY || hasCredential("openai")),
 		defaultModel: process.env.OPENAI_CHAT_MODEL ?? "gpt-5.2",
 		remote: true,
 		model: () =>
-			openAiCompatible(undefined, process.env.OPENAI_API_KEY).chat(
+			openAiCompatible(undefined, openAiKey() ?? undefined).chat(
 				process.env.OPENAI_CHAT_MODEL ?? "gpt-5.2",
 			),
 	},
 	openrouter: {
-		configured: () => Boolean(process.env.OPENROUTER_API_KEY),
+		configured: () =>
+			Boolean(process.env.OPENROUTER_API_KEY || hasCredential("openrouter")),
 		defaultModel:
 			process.env.OPENROUTER_CHAT_MODEL ??
 			"nvidia/nemotron-3-ultra-550b-a55b:free",
@@ -109,7 +160,7 @@ const CHAT_PROVIDERS: Record<ChatProviderId, ChatProvider> = {
 		model: () =>
 			openAiCompatible(
 				"https://openrouter.ai/api/v1",
-				process.env.OPENROUTER_API_KEY,
+				openRouterKey() ?? undefined,
 			).chat(
 				process.env.OPENROUTER_CHAT_MODEL ??
 					"nvidia/nemotron-3-ultra-550b-a55b:free",
@@ -147,7 +198,7 @@ export function activeChatProvider(): ChatProviderId {
 	const found = resolveChatProvider()
 	if (!found) {
 		throw new Error(
-			"No chat provider configured. Set one of LOCAL_CHAT_BASE_URL, ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, OPENAI_API_KEY, or OPENROUTER_API_KEY.",
+			"No chat provider configured. Add a provider API key in Context sources, or point LOCAL_CHAT_BASE_URL at a local model.",
 		)
 	}
 	return found
@@ -206,14 +257,21 @@ function fallbackModel(
 	slug: string,
 ): LanguageModel {
 	switch (providerId) {
-		case "anthropic":
-			return createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY })(slug)
+		case "anthropic": {
+			// Same credential the primary attempt used — reading process.env
+			// directly here would silently skip a key entered in the app.
+			const credential = anthropicCredential()
+			if (!credential) throw new Error("Anthropic is not configured")
+			return credential.kind === "key"
+				? createAnthropic({ apiKey: credential.value })(slug)
+				: anthropicOauth(credential.value)(slug)
+		}
 		case "openai":
-			return openAiCompatible(undefined, process.env.OPENAI_API_KEY).chat(slug)
+			return openAiCompatible(undefined, openAiKey() ?? undefined).chat(slug)
 		case "openrouter":
 			return openAiCompatible(
 				"https://openrouter.ai/api/v1",
-				process.env.OPENROUTER_API_KEY,
+				openRouterKey() ?? undefined,
 			).chat(slug)
 		case "local":
 			return openAiCompatible(

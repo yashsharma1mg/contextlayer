@@ -40,6 +40,8 @@ bun run --cwd apps/desktop test:resource
 - React generation must validate assets, props, variants, tokens, citations, and imports before compilation or publication.
 - GitHub publication uses local `gh` authentication and explicit owner approval.
 - MCP tools enforce OAuth or bearer-token scopes plus current project and source access.
+- Model credentials resolve environment first, then a key entered in the app and held in macOS Keychain. Environment wins so existing `.env` and CI setups are unaffected.
+- Every remote provider is billed as API usage. Consumer subscriptions are not a supported source: Anthropic blocks Free/Pro/Max OAuth outside its own clients, and "Sign in with ChatGPT" grants identity only. Local models via `LOCAL_CHAT_BASE_URL` are the no-cost, nothing-leaves-the-Mac path.
 
 ## Local Data
 

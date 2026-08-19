@@ -12,6 +12,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { ModelAccountControls } from "@/components/model-account-controls"
 import { API_URL, apiDelete, apiGet, apiSend, waitForJob } from "@/lib/api"
 
 type Provider =
@@ -201,7 +202,8 @@ export function ProviderConsentControls({ canManage }: { canManage: boolean }) {
 
 	return (
 		<section className="space-y-2 border-t border-border pt-3">
-			<p className="text-xs font-medium">Remote AI data boundaries</p>
+			{canManage && <ModelAccountControls />}
+			<p className="pt-1 text-xs font-medium">Remote AI data boundaries</p>
 			{rows.map((option) => (
 				<label key={option.id} className="flex items-start gap-2 py-1 text-xs">
 					<input

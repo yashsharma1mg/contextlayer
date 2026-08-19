@@ -396,6 +396,21 @@ fn launch(app: &tauri::AppHandle, children: Arc<Mutex<Vec<Child>>>) -> Result<()
 
     let auth_secret = secret("better-auth-secret")?;
     let encryption_key = secret("connection-encryption-key")?;
+    // A GUI-launched app inherits launchd's minimal PATH, not a login shell's,
+    // so Homebrew binaries are invisible to anything it spawns. GitHub
+    // publication shells out to `gh`, which lives there on most Macs; without
+    // this it fails with "command not found" on a machine where the user's own
+    // shell finds it without trouble.
+    let search_path = {
+        let inherited = std::env::var("PATH").unwrap_or_default();
+        let mut entries: Vec<&str> = inherited.split(':').filter(|p| !p.is_empty()).collect();
+        for extra in ["/opt/homebrew/bin", "/usr/local/bin"] {
+            if !entries.contains(&extra) {
+                entries.push(extra);
+            }
+        }
+        entries.join(":")
+    };
     let (stdout, stderr) = log_file(&logs, "context-agent")?;
     let mut agent_command = Command::new(&agent);
     agent_command
@@ -426,6 +441,7 @@ fn launch(app: &tauri::AppHandle, children: Arc<Mutex<Vec<Child>>>) -> Result<()
         .env("CONNECTOR_POLLING", "false")
         .env("MODEL_CONCURRENCY", "1")
         .env("NODE_ENV", "production")
+        .env("PATH", &search_path)
         .stdout(stdout)
         .stderr(stderr);
     agent_command.process_group(0);
