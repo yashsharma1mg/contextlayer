@@ -45,7 +45,7 @@ pub struct MonitorHandle(#[allow(dead_code)] Arc<()>);
 #[cfg(target_os = "macos")]
 mod platform {
     use objc2::rc::Retained;
-    use objc2_app_kit::{NSEvent, NSEventMask, NSWindow};
+    use objc2_app_kit::{NSEvent, NSEventMask, NSScreen, NSWindow};
     use objc2_foundation::{MainThreadMarker, NSPoint};
 
     /// Above normal windows but below the HUD, so the companion never covers
@@ -69,15 +69,51 @@ mod platform {
         (point.x, point.y)
     }
 
+    /// Converts an AppKit bottom-left Y into the top-left space Tauri uses.
+    pub fn flip_y(y: f64) -> f64 {
+        let Some(mtm) = MainThreadMarker::new() else {
+            return y;
+        };
+        let top = NSScreen::screens(mtm)
+            .iter()
+            .map(|screen| screen.frame().origin.y + screen.frame().size.height)
+            .fold(0.0_f64, f64::max);
+        top - y
+    }
+
     /// Installs a global mouse-move monitor, returning a token that removes it
     /// when dropped.
-    pub fn watch_mouse<F: Fn(f64, f64) + 'static>(handler: F) -> Option<Retained<objc2::runtime::AnyObject>> {
+    pub fn watch_mouse<F: Fn(f64, f64) + Clone + 'static>(
+        handler: F,
+    ) -> Option<Retained<objc2::runtime::AnyObject>> {
         let _ = MainThreadMarker::new()?;
+        let local_handler = handler.clone();
         let block = block2::RcBlock::new(move |event: core::ptr::NonNull<NSEvent>| {
             let _ = event;
             let (x, y) = mouse_location();
             handler(x, y);
         });
+        // A *global* monitor only sees events destined for other applications,
+        // so without a local one too the companion freezes the moment the
+        // pointer crosses one of our own windows — which is most of the time
+        // while the HUD is open.
+        let local = block2::RcBlock::new(
+            move |event: core::ptr::NonNull<NSEvent>| -> *mut NSEvent {
+                let (x, y) = mouse_location();
+                local_handler(x, y);
+                // Pass the event through untouched; swallowing it here would
+                // eat mouse movement inside our own windows.
+                event.as_ptr()
+            },
+        );
+        let _local_token = unsafe {
+            NSEvent::addLocalMonitorForEventsMatchingMask_handler(
+                NSEventMask::MouseMoved | NSEventMask::LeftMouseDragged,
+                &local,
+            )
+        };
+        std::mem::forget(_local_token);
+
         NSEvent::addGlobalMonitorForEventsMatchingMask_handler(
             NSEventMask::MouseMoved | NSEventMask::LeftMouseDragged,
             &block,
@@ -126,13 +162,18 @@ pub fn create(app: &AppHandle) -> Result<WebviewWindow, tauri::Error> {
     Ok(window)
 }
 
-/// Moves the companion to the pointer. AppKit's origin is bottom-left and the
-/// window is positioned by its own bottom-left corner, so the marker ends up
-/// below-right of the hotspot.
+/// Moves the companion to the pointer.
+///
+/// Two conversions, and getting either wrong parks the window somewhere
+/// arbitrary. `NSEvent::mouseLocation` reports **logical points** with a
+/// **bottom-left** origin; Tauri positions windows in **top-left** space, and
+/// `PhysicalPosition` would additionally double every value on a 2x display.
+/// So: flip Y against the tallest screen edge, and pass logical units.
 fn follow(window: &WebviewWindow, x: f64, y: f64) {
-    let _ = window.set_position(tauri::PhysicalPosition::new(
-        (x + OFFSET_X) as i32,
-        (y - HEIGHT - OFFSET_Y) as i32,
+    let top_left_y = platform::flip_y(y);
+    let _ = window.set_position(tauri::LogicalPosition::new(
+        x + OFFSET_X,
+        top_left_y + OFFSET_Y,
     ));
 }
 

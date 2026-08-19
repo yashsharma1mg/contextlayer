@@ -322,6 +322,13 @@ pub fn focus(window: &WebviewWindow) {
     expand(window);
     let _ = window.show();
     let _ = window.set_focus();
+    let _ = crate::pointer::show(
+        window.app_handle(),
+        crate::pointer::PointerMessage {
+            text: "Context Layer is listening".to_string(),
+            ttl_ms: 2_600,
+        },
+    );
 }
 
 #[cfg(test)]
@@ -453,8 +460,20 @@ pub fn hud_set_visible(app: AppHandle, visible: bool) -> bool {
     if visible {
         collapse(&window);
         let _ = window.show();
+        // The companion belongs to the HUD's lifetime: it appears with it and
+        // goes away with it, rather than being a thing that floats around on
+        // its own. It starts following immediately so the first movement after
+        // the HUD opens is already tracked.
+        let _ = crate::pointer::show(
+            &app,
+            crate::pointer::PointerMessage {
+                text: "Context Layer is watching this screen".to_string(),
+                ttl_ms: 2_600,
+            },
+        );
     } else {
         let _ = window.hide();
+        crate::pointer::hide(&app);
     }
     visible
 }
