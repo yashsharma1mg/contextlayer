@@ -17,9 +17,10 @@ test("a new team can create and discuss a canvas project", async ({ page }) => {
 
 	await page.getByPlaceholder("Organization name").fill(organizationName)
 	await page.getByRole("button", { name: "Create" }).click()
-	await expect(page.getByRole("link", { name: "Projects" })).toBeVisible()
 
-	await page.getByRole("link", { name: "Projects" }).click()
+	// The onboarding gate redirects to /projects as soon as an active org
+	// exists; there is no nav link to click.
+	await page.waitForURL(/\/projects$/)
 	await page.getByPlaceholder("New project name").fill(projectName)
 	await page.getByRole("button", { name: "Create" }).click()
 	await page.getByRole("link", { name: projectName }).click()
