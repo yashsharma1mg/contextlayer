@@ -26,9 +26,7 @@
 	},
 	"bundle": {
 		"active": true,
-		"targets": [
-			"app"
-		],
+		"targets": ["app"],
 		"externalBin": [
 			"binaries/context-agent",
 			"binaries/studio",

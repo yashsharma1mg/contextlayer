@@ -2,16 +2,9 @@
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "pointer",
 	"description": "Cursor companion window. Click-through and non-interactive; it only listens for the message to draw. Served from the Studio origin like the other windows, so the origin needs granting.",
-	"windows": [
-		"pointer"
-	],
+	"windows": ["pointer"],
 	"remote": {
-		"urls": [
-			"http://127.0.0.1:31420/*"
-		]
+		"urls": ["http://127.0.0.1:31420/*"]
 	},
-	"permissions": [
-		"core:default",
-		"core:event:allow-listen"
-	]
+	"permissions": ["core:default", "core:event:allow-listen"]
 }

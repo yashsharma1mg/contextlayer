@@ -2,13 +2,9 @@
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "default",
 	"description": "Main window. Starts on the bundled splash page and then hands off to the local Studio server, which makes it a remote window as far as Tauri is concerned \u2014 hence the explicit origin grant. The canvas needs IPC only to toggle the HUD.",
-	"windows": [
-		"main"
-	],
+	"windows": ["main"],
 	"remote": {
-		"urls": [
-			"http://127.0.0.1:31420/*"
-		]
+		"urls": ["http://127.0.0.1:31420/*"]
 	},
 	"permissions": [
 		"core:default",
