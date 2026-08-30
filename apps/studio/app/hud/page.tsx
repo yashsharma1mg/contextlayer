@@ -349,9 +349,7 @@ export default function HudPage() {
 						style={{ background: dot.color }}
 					/>
 					{/* The dot is decorative; screen readers get the state as text. */}
-					<span className="sr-only" role="status">
-						{dot.label}
-					</span>
+					<output className="sr-only">{dot.label}</output>
 					{expanded && (
 						<span className="min-w-0 truncate font-medium">
 							{ambient?.projectName ?? "Context Layer"}
@@ -393,7 +391,6 @@ export default function HudPage() {
 										? "var(--hud-danger)"
 										: "var(--hud-border)",
 									color: "var(--hud-text)",
-									// biome-ignore lint/style/useNamingConvention: CSS custom property
 									["--tw-ring-color" as string]: "var(--hud-accent)",
 								}}
 							/>
