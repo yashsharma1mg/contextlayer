@@ -4,7 +4,7 @@ Thank you for helping improve Context Layer. Contributions should strengthen its
 
 ## Before you start
 
-- Search the [existing issues](https://github.com/yashsharma1mg/contextlayer/issues) before opening a new one.
+- Search the [existing issues](https://github.com/Yasharma117/contextlayer/issues) before opening a new one.
 - For a substantial feature or architectural change, open an issue describing the user problem and proposed behavior first.
 - Never commit credentials, provider keys, connector tokens, captured private data, local databases, or generated application data.
 
@@ -13,7 +13,7 @@ Thank you for helping improve Context Layer. Contributions should strengthen its
 The repository is a Bun and Turborepo monorepo. Development requires Bun `1.3.6`, Node.js 20 or newer, PostgreSQL with pgvector, and Docker for the default local database setup. Building the desktop application also requires macOS, Rust, and the Xcode command-line tools.
 
 ```bash
-git clone https://github.com/yashsharma1mg/contextlayer.git
+git clone https://github.com/Yasharma117/contextlayer.git
 cd contextlayer
 bun install
 docker compose up -d db
